@@ -77,6 +77,17 @@
                 android:textColor="@color/on_surface_muted"
                 android:textSize="@dimen/text_size_caption" />
 
+            <TextView
+                android:id="@+id/tvSelfBroadcastBadge"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/spacing_sm"
+                android:text="@string/self_broadcasting_badge"
+                android:textColor="@color/status_active"
+                android:textSize="@dimen/text_size_caption"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

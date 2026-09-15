@@ -21,6 +21,7 @@
     <string name="status_broadcasting">משדר מיקום כעת</string>
     <string name="status_ride_ended">הנסיעה הסתיימה</string>
     <string name="broadcast_now_button">שדר עכשיו</string>
+    <string name="self_broadcasting_badge">📡 המכשיר שלך משדר כעת</string>
     <string name="got_off_button">ירדתי</string>
     <string name="settings_menu_item">הגדרות</string>
     <string name="alert_zones_menu_item">אזורי התראה</string>

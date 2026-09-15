@@ -29,38 +29,89 @@
     var initialLon = parseFloat(queryParam('lon', '34.7818'));
     var initialZoom = parseFloat(queryParam('zoom', '13'));
 
-    var styleUrl = maptilerKey
-      ? 'https://api.maptiler.com/maps/streets-v4/style.json?key=' + encodeURIComponent(maptilerKey)
-      : 'https://demotiles.maplibre.org/style.json';
+    // Without a MapTiler key there is no keyless source of real street/
+    // satellite tiles, so both variants fall back to MapLibre's minimal
+    // demo style (borders only, no roads) — see docs/SPEC_EN.md 4.1.
+    function styleUrlFor(variant) {
+      if (!maptilerKey) return 'https://demotiles.maplibre.org/style.json';
+      var styleId = variant === 'satellite' ? 'hybrid' : 'streets-v4';
+      return 'https://api.maptiler.com/maps/' + styleId + '/style.json?key=' + encodeURIComponent(maptilerKey);
+    }
 
+    var currentStyleVariant = 'streets';
     var map = new maplibregl.Map({
       container: 'map',
-      style: styleUrl,
+      style: styleUrlFor(currentStyleVariant),
       center: [initialLon, initialLat],
       zoom: initialZoom
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-left');
 
+    function StyleSwitcherControl() {}
+    StyleSwitcherControl.prototype.onAdd = function (mapInstance) {
+      this._map = mapInstance;
+      var container = document.createElement('div');
+      container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+
+      var streetsBtn = document.createElement('button');
+      streetsBtn.type = 'button';
+      streetsBtn.title = 'מפת רחובות';
+      streetsBtn.textContent = '🗺️';
+      streetsBtn.onclick = function () { setMapStyleVariant('streets'); };
+
+      var satelliteBtn = document.createElement('button');
+      satelliteBtn.type = 'button';
+      satelliteBtn.title = 'מפת לוויין';
+      satelliteBtn.textContent = '🛰️';
+      satelliteBtn.onclick = function () { setMapStyleVariant('satellite'); };
+
+      container.appendChild(streetsBtn);
+      container.appendChild(satelliteBtn);
+      this._container = container;
+      return container;
+    };
+    StyleSwitcherControl.prototype.onRemove = function () {
+      this._container.parentNode.removeChild(this._container);
+      this._map = undefined;
+    };
+    map.addControl(new StyleSwitcherControl(), 'top-left');
+
+    function setMapStyleVariant(variant) {
+      if (variant === currentStyleVariant) return;
+      currentStyleVariant = variant;
+      map.setStyle(styleUrlFor(variant));
+    }
+
     var rideMarker = null;
     var zoneSourceId = 'alert-zones';
+    var lastZones = [];
 
+    // 'load' fires once for the map's whole lifetime; 'style.load' fires
+    // on the initial load AND every subsequent setStyle() call, since
+    // setStyle() wipes any custom sources/layers (but not DOM-based
+    // markers, which survive style switches on their own).
     map.on('load', function () {
-      map.addSource(zoneSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      map.addLayer({
-        id: zoneSourceId + '-fill',
-        type: 'fill',
-        source: zoneSourceId,
-        paint: { 'fill-color': '#C0392B', 'fill-opacity': 0.2 }
-      });
-      map.addLayer({
-        id: zoneSourceId + '-outline',
-        type: 'line',
-        source: zoneSourceId,
-        paint: { 'line-color': '#C0392B', 'line-width': 2 }
-      });
       if (window.Android && Android.onMapReady) {
         Android.onMapReady();
       }
+    });
+    map.on('style.load', function () {
+      if (!map.getSource(zoneSourceId)) {
+        map.addSource(zoneSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+          id: zoneSourceId + '-fill',
+          type: 'fill',
+          source: zoneSourceId,
+          paint: { 'fill-color': '#C0392B', 'fill-opacity': 0.2 }
+        });
+        map.addLayer({
+          id: zoneSourceId + '-outline',
+          type: 'line',
+          source: zoneSourceId,
+          paint: { 'line-color': '#C0392B', 'line-width': 2 }
+        });
+      }
+      applyStoredZones();
     });
 
     if (mode === 'zones') {
@@ -101,14 +152,17 @@
 
     // zonesJson: JSON string of [{id, lat, lon, radiusMeters, name}]
     function setAlertZones(zonesJson) {
-      var zones = JSON.parse(zonesJson);
-      var features = zones.map(function (zone) {
+      lastZones = JSON.parse(zonesJson);
+      applyStoredZones();
+    }
+
+    function applyStoredZones() {
+      var source = map.getSource(zoneSourceId);
+      if (!source) return;
+      var features = lastZones.map(function (zone) {
         return { type: 'Feature', properties: { id: zone.id, name: zone.name }, geometry: circlePolygon(zone.lat, zone.lon, zone.radiusMeters) };
       });
-      var source = map.getSource(zoneSourceId);
-      if (source) {
-        source.setData({ type: 'FeatureCollection', features: features });
-      }
+      source.setData({ type: 'FeatureCollection', features: features });
     }
 
     function circlePolygon(lat, lon, radiusMeters, points) {

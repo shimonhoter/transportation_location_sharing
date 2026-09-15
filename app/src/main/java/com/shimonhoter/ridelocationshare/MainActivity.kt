@@ -59,6 +59,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         RideSessionState.currentLocation.observe(this) { location -> renderStatus(location) }
+
+        // Reflects whether THIS device is broadcasting, independent of the
+        // shared ride-location status above — updates immediately on button
+        // press, without waiting for a Firebase round-trip.
+        RideSessionState.isThisDeviceBroadcasting.observe(this) { isBroadcasting -> renderSelfBroadcasting(isBroadcasting) }
     }
 
     override fun onStart() {
@@ -92,6 +97,11 @@ class MainActivity : AppCompatActivity() {
             }
             renderRideLocation(location)
         }
+    }
+
+    private fun renderSelfBroadcasting(isBroadcasting: Boolean) {
+        binding.tvSelfBroadcastBadge.visibility = if (isBroadcasting) android.view.View.VISIBLE else android.view.View.GONE
+        binding.btnBroadcastNow.isEnabled = !isBroadcasting
     }
 
     private fun renderRideLocation(location: RideLocation) {
