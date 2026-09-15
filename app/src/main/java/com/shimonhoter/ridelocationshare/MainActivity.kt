@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnAlertZones.setOnClickListener {
             startActivity(android.content.Intent(this, AlertZonesActivity::class.java))
         }
+        binding.btnHelp.setOnClickListener { showHelp() }
 
         RideSessionState.currentLocation.observe(this) { location -> renderStatus(location) }
 
@@ -107,6 +108,14 @@ class MainActivity : AppCompatActivity() {
     private fun renderRideLocation(location: RideLocation) {
         if (!mapReady) return
         binding.webViewMap.evaluateJavascript("updateRideLocation(${location.lat}, ${location.lon})", null)
+    }
+
+    private fun showHelp() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.help_title)
+            .setMessage(R.string.help_body)
+            .setPositiveButton(R.string.help_close_button, null)
+            .show()
     }
 
     private fun pushAlertZonesToMap() {

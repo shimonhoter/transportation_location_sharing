@@ -29,6 +29,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="@dimen/spacing_sm"
+            android:contentDescription="@string/alert_zones_menu_item"
             app:srcCompat="@android:drawable/ic_dialog_map"
             app:fabSize="mini" />
 
@@ -37,7 +38,18 @@
             style="@style/Widget.MaterialComponents.FloatingActionButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginEnd="@dimen/spacing_sm"
+            android:contentDescription="@string/settings_menu_item"
             app:srcCompat="@android:drawable/ic_menu_preferences"
+            app:fabSize="mini" />
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/btnHelp"
+            style="@style/Widget.MaterialComponents.FloatingActionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:contentDescription="@string/help_menu_item"
+            app:srcCompat="@android:drawable/ic_dialog_info"
             app:fabSize="mini" />
     </LinearLayout>
 
