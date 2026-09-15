@@ -7,6 +7,9 @@ on:
 jobs:
   assemble-debug:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@v4
 
@@ -19,10 +22,15 @@ jobs:
       - name: Resolve sdkmanager path
         id: sdk
         run: |
-          SDKMANAGER="$(command -v sdkmanager || true)"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 2 -name sdkmanager 2>/dev/null | sort -r | head -n1)"
           if [ -z "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools" -maxdepth 2 -name sdkmanager | sort -r | head -n1)"
+            SDKMANAGER="$(command -v sdkmanager || true)"
           fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::Could not locate sdkmanager under $ANDROID_HOME or on PATH"
+            exit 1
+          fi
+          echo "Found sdkmanager at $SDKMANAGER"
           echo "path=$SDKMANAGER" >> "$GITHUB_OUTPUT"
 
       - name: Accept Android SDK licenses
