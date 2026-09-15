@@ -10,7 +10,14 @@ import kotlinx.coroutines.tasks.await
 
 data class RideLocation(val lat: Double, val lon: Double, val nickname: String?, val ageSeconds: Double)
 
-private data class DeviceSample(val lat: Double, val lon: Double, val speedKmh: Double, val nickname: String?, val ageSeconds: Double)
+private data class DeviceSample(
+    val lat: Double,
+    val lon: Double,
+    val speedKmh: Double,
+    val nickname: String?,
+    val ageSeconds: Double,
+    val lastMovingAtMillis: Long
+)
 
 /**
  * Firebase Realtime Database replacement for the old stdlib HTTP server.
@@ -22,14 +29,20 @@ private data class DeviceSample(val lat: Double, val lon: Double, val speedKmh: 
  * value would show whoever happened to post most recently, which is
  * meaningless. Instead the displayed location is an on-device aggregate:
  * the average position of devices moving faster than
- * [RideConfig.MOVING_SPEED_THRESHOLD_KMH] (i.e. plausibly inside the moving
- * vehicle), falling back to averaging every fresh device if none currently
- * qualify — e.g. everyone in the vehicle stopped at a red light, which must
- * not make the ride disappear from the map. No history is kept: stale
- * per-device entries are filtered out by age, not stored (docs/SPEC_EN.md
- * section 5). Every device signs in anonymously rather than carrying a
- * per-user credential (the old shared-token model has no server-side
- * equivalent in Firebase).
+ * [RideConfig.MOVING_SPEED_THRESHOLD_KMH], or that did so within
+ * [RideConfig.RECENTLY_MOVING_GRACE_SECONDS] (i.e. plausibly inside the
+ * moving vehicle, allowing for a brief stop like a red light). A device
+ * that has never yet exceeded the threshold falls back to being averaged
+ * in anyway (covers the first few fixes of a ride, before GPS speed has
+ * caught up) — but once a device has been confirmed moving and then drops
+ * below the threshold for longer than the grace window (e.g. a passenger
+ * who got off and is now on foot), it is excluded from the aggregate
+ * entirely rather than its now-irrelevant, jittery position dragging or
+ * replacing the shown ride location. No history is kept: stale per-device
+ * entries are filtered out by age, not stored (docs/SPEC_EN.md section 5).
+ * Every device signs in anonymously rather than carrying a per-user
+ * credential (the old shared-token model has no server-side equivalent in
+ * Firebase).
  */
 class FirebaseLocationRepository {
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
@@ -44,7 +57,7 @@ class FirebaseLocationRepository {
         return auth.currentUser!!.uid
     }
 
-    suspend fun postLocation(lat: Double, lon: Double, speedKmh: Double, nickname: String?): Boolean {
+    suspend fun postLocation(lat: Double, lon: Double, speedKmh: Double, nickname: String?, lastMovingAtMillis: Long): Boolean {
         return try {
             val uid = ensureSignedIn()
             val data = mapOf(
@@ -52,7 +65,8 @@ class FirebaseLocationRepository {
                 "lon" to lon,
                 "speedKmh" to speedKmh,
                 "nickname" to nickname,
-                "updatedAt" to System.currentTimeMillis()
+                "updatedAt" to System.currentTimeMillis(),
+                "lastMovingAt" to lastMovingAtMillis
             )
             devicesRef.child(uid).setValue(data).await()
             true
@@ -99,8 +113,21 @@ class FirebaseLocationRepository {
         val fresh = snapshot.children.mapNotNull { parseSample(it, now) }
         if (fresh.isEmpty()) return null
 
-        val moving = fresh.filter { it.speedKmh > RideConfig.MOVING_SPEED_THRESHOLD_KMH }
-        val chosen = moving.ifEmpty { fresh }
+        val graceMillis = (RideConfig.RECENTLY_MOVING_GRACE_SECONDS * 1000).toLong()
+        val hasEverMoved = fresh.filter { it.lastMovingAtMillis > 0L }
+        val recentlyMoving = hasEverMoved.filter { now - it.lastMovingAtMillis <= graceMillis }
+
+        // Prefer devices confirmed moving recently. If none qualify but some
+        // devices have never yet registered a moving sample (e.g. the ride
+        // just started), average all fresh devices as a startup fallback.
+        // If every fresh device HAS moved before but all are now outside the
+        // grace window, they've likely gotten off and are on foot — exclude
+        // them rather than show their stale position.
+        val chosen = when {
+            recentlyMoving.isNotEmpty() -> recentlyMoving
+            hasEverMoved.size < fresh.size -> fresh
+            else -> return null
+        }
 
         val avgLat = chosen.sumOf { it.lat } / chosen.size
         val avgLon = chosen.sumOf { it.lon } / chosen.size
@@ -117,6 +144,7 @@ class FirebaseLocationRepository {
         if (ageSeconds > RideConfig.STALE_AFTER_SECONDS) return null
         val speedKmh = child.child("speedKmh").getValue(Double::class.java) ?: 0.0
         val nickname = child.child("nickname").getValue(String::class.java)
-        return DeviceSample(lat, lon, speedKmh, nickname, ageSeconds)
+        val lastMovingAtMillis = child.child("lastMovingAt").getValue(Long::class.java) ?: 0L
+        return DeviceSample(lat, lon, speedKmh, nickname, ageSeconds, lastMovingAtMillis)
     }
 }

@@ -163,16 +163,32 @@ operation.
   spot), last-write-wins on one shared value would show whichever device
   happened to post most recently — meaningless. Instead, the displayed
   ride location is computed client-side, on every read, as the average
-  position of all fresh devices whose reported speed exceeds
-  `RideConfig.MOVING_SPEED_THRESHOLD_KMH` (7 km/h) — i.e. devices plausibly
-  inside the moving vehicle rather than someone still on foot. If none
-  currently qualify (e.g. the ride is stopped at a red light, everyone
-  momentarily at 0 km/h), the aggregate falls back to averaging every
-  fresh device regardless of speed, so the ride never disappears from the
-  map just because it's briefly stationary — broadcasting itself is never
-  speed-gated; a device keeps posting on every fix for as long as it's
-  broadcasting, and only stops via the safety timer, geofence auto-stop, or
-  the manual "I got off" (docs section 3.2/3.6).
+  position of devices plausibly inside the moving vehicle. Each device
+  tracks and posts its own `lastMovingAt` timestamp — the last time its
+  reported speed exceeded `RideConfig.MOVING_SPEED_THRESHOLD_KMH` (7 km/h),
+  reset to none at the start of every new broadcast session — and a device
+  counts toward the aggregate if it is currently over that speed **or**
+  was within `RideConfig.RECENTLY_MOVING_GRACE_SECONDS` (90s). This grace
+  window is what keeps the ride on the map through a brief stop (a red
+  light, momentary traffic) without instantaneous 0 km/h readings kicking
+  everyone out of the aggregate. If no device currently qualifies:
+  - and at least one fresh device has never yet recorded a moving sample
+    (e.g. broadcasting only just started, before GPS speed caught up), the
+    aggregate falls back to averaging every fresh device regardless of
+    speed, same as before;
+  - but if every fresh device *has* moved before and all are now past the
+    grace window, the aggregate is empty (no active ride) rather than
+    showing a stray device's stale, jittery position — this is what
+    prevents a passenger who got off (and whose device is still
+    broadcasting, automatically or by mistake) from corrupting or becoming
+    the sole reported ride location once their walking-pace samples age
+    out of the grace window.
+  Broadcasting itself is never speed-gated; a device keeps posting on
+  every fix for as long as it's broadcasting, and only stops via the
+  safety timer, geofence auto-stop, or the manual "I got off" (docs
+  section 3.2/3.6) — the grace-window exclusion only affects whether that
+  device's samples are counted in the aggregate, not whether it keeps
+  transmitting.
 - **Staleness:** there is no server-side TTL. Each device's sample older
   than `RideConfig.STALE_AFTER_SECONDS` (90s) is excluded from the
   aggregate by the client computing it — the same effective behavior the

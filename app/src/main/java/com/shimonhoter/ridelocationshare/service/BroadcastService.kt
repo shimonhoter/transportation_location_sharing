@@ -59,6 +59,7 @@ class BroadcastService : Service() {
     private var sharedLocationListener: ValueEventListener? = null
     private var isBroadcastingLocally = false
     private var geofenceAnchor: Location? = null
+    private var lastMovingAtMillis: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -155,7 +156,12 @@ class BroadcastService : Service() {
         if (isBroadcastingLocally) {
             val nickname = prefs.nickname.takeIf { prefs.showNickname && it.isNotBlank() }
             val speedKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
-            serviceScope.launch { locationRepository.postLocation(location.latitude, location.longitude, speedKmh, nickname) }
+            if (speedKmh > RideConfig.MOVING_SPEED_THRESHOLD_KMH) {
+                lastMovingAtMillis = System.currentTimeMillis()
+            }
+            serviceScope.launch {
+                locationRepository.postLocation(location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis)
+            }
 
             if (System.currentTimeMillis() >= rideEndDeadlineMillis()) {
                 AppLog.i(TAG, "Safety timer expired, ending broadcast for this device")
@@ -202,6 +208,7 @@ class BroadcastService : Service() {
 
     private fun beginBroadcasting() {
         isBroadcastingLocally = true
+        lastMovingAtMillis = 0L
         prefs.isBroadcasting = true
         prefs.rideStartTimeMillis = System.currentTimeMillis()
         RideSessionState.isThisDeviceBroadcasting.postValue(true)

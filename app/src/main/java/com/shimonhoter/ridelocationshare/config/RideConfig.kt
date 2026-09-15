@@ -18,14 +18,25 @@ object RideConfig {
     const val STALE_AFTER_SECONDS = 90.0
 
     /**
-     * Only devices moving faster than this are averaged into the displayed
-     * ride location — distinguishes passengers already in the moving
-     * vehicle from someone still walking toward the pickup point. Falls
-     * back to averaging every fresh device when none currently qualify
-     * (e.g. the ride is stopped at a red light), so the map never goes
-     * blank just because the vehicle is momentarily stationary.
+     * Only devices moving faster than this (or that moved this fast within
+     * [RECENTLY_MOVING_GRACE_SECONDS]) are averaged into the displayed ride
+     * location — distinguishes passengers already in the moving vehicle from
+     * someone still walking toward the pickup point, or someone who has
+     * since gotten off and is now on foot.
      */
     const val MOVING_SPEED_THRESHOLD_KMH = 7.0
+
+    /**
+     * A device that exceeded [MOVING_SPEED_THRESHOLD_KMH] this recently is
+     * still treated as "in the vehicle" even while its instantaneous speed
+     * is momentarily low — covers a brief stop (red light, traffic) so the
+     * ride doesn't flicker out of the aggregate. A device that has been
+     * below the threshold for longer than this (e.g. a passenger who got
+     * off and is now walking) drops out of the aggregate entirely, instead
+     * of its now-irrelevant, jittery position being averaged in or shown
+     * outright.
+     */
+    const val RECENTLY_MOVING_GRACE_SECONDS = 90.0
 
     /** User-configurable via Settings (Prefs.locationUpdateIntervalSeconds); this is only the default/bounds. */
     const val DEFAULT_LOCATION_UPDATE_INTERVAL_SECONDS = 5
