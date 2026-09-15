@@ -55,6 +55,16 @@
       return variant === 'satellite' ? ESRI_SATELLITE_STYLE : OPEN_FREE_MAP_STREETS_STYLE;
     }
 
+    // Without this, MapLibre GL JS renders Hebrew/Arabic map labels with
+    // their characters in reversed visual order (it doesn't do complex-script
+    // text shaping itself) — this plugin does the shaping. Lazy: only
+    // downloaded the first time a tile actually needs RTL text.
+    maplibregl.setRTLTextPlugin(
+      'https://unpkg.com/@mapbox/mapbox-gl-rtl-text@0.2.3/mapbox-gl-rtl-text.js',
+      null,
+      true
+    );
+
     var currentStyleVariant = 'streets';
     var map = new maplibregl.Map({
       container: 'map',
