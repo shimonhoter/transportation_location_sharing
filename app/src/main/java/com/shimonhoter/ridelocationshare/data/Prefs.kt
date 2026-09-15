@@ -2,6 +2,7 @@ package com.shimonhoter.ridelocationshare.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.shimonhoter.ridelocationshare.config.RideConfig
 import org.json.JSONArray
 
 /**
@@ -82,6 +83,10 @@ class Prefs(context: Context) {
         get() = sp.getLong(KEY_RIDE_START_TIME, 0L)
         set(value) = sp.edit().putLong(KEY_RIDE_START_TIME, value).apply()
 
+    var locationUpdateIntervalSeconds: Int
+        get() = sp.getInt(KEY_LOCATION_UPDATE_INTERVAL, RideConfig.DEFAULT_LOCATION_UPDATE_INTERVAL_SECONDS)
+        set(value) = sp.edit().putInt(KEY_LOCATION_UPDATE_INTERVAL, value).apply()
+
     private fun readPoint(latKey: String, lonKey: String): GeoPoint? {
         if (!sp.contains(latKey) || !sp.contains(lonKey)) return null
         val lat = sp.getFloat(latKey, 0f).toDouble()
@@ -116,6 +121,7 @@ class Prefs(context: Context) {
         private const val KEY_ALERTED_ZONE_IDS = "alerted_zone_ids"
         private const val KEY_IS_BROADCASTING = "is_broadcasting"
         private const val KEY_RIDE_START_TIME = "ride_start_time"
+        private const val KEY_LOCATION_UPDATE_INTERVAL = "location_update_interval_seconds"
 
         // Sunday(1)-Thursday(5): the default Israeli work week.
         private val DEFAULT_ACTIVE_DAYS = setOf("1", "2", "3", "4", "5")

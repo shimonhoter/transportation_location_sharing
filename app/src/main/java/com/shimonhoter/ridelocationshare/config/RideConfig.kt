@@ -14,10 +14,24 @@ object RideConfig {
     /** MapTiler API key for the streets-v4 style; empty falls back to the public MapLibre demo style. */
     const val MAPTILER_KEY = ""
 
-    const val LOCATION_UPDATE_INTERVAL_MS = 5_000L
     const val MIN_MOVEMENT_METERS = 150.0
     const val WORK_CHECK_INTERVAL_MINUTES = 15L
 
     /** A ride location sample older than this is treated as "no active ride" (replaces the old server-side TTL). */
     const val STALE_AFTER_SECONDS = 90.0
+
+    /**
+     * Only devices moving faster than this are averaged into the displayed
+     * ride location — distinguishes passengers already in the moving
+     * vehicle from someone still walking toward the pickup point. Falls
+     * back to averaging every fresh device when none currently qualify
+     * (e.g. the ride is stopped at a red light), so the map never goes
+     * blank just because the vehicle is momentarily stationary.
+     */
+    const val MOVING_SPEED_THRESHOLD_KMH = 7.0
+
+    /** User-configurable via Settings (Prefs.locationUpdateIntervalSeconds); this is only the default/bounds. */
+    const val DEFAULT_LOCATION_UPDATE_INTERVAL_SECONDS = 5
+    const val MIN_LOCATION_UPDATE_INTERVAL_SECONDS = 3
+    const val MAX_LOCATION_UPDATE_INTERVAL_SECONDS = 30
 }

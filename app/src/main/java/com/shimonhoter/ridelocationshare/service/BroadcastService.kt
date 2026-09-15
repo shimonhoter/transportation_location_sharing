@@ -120,8 +120,9 @@ class BroadcastService : Service() {
             return
         }
 
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, RideConfig.LOCATION_UPDATE_INTERVAL_MS)
-            .setMinUpdateIntervalMillis(RideConfig.LOCATION_UPDATE_INTERVAL_MS)
+        val intervalMillis = prefs.locationUpdateIntervalSeconds * 1_000L
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMillis)
+            .setMinUpdateIntervalMillis(intervalMillis)
             .build()
 
         val callback = object : LocationCallback() {
@@ -142,7 +143,8 @@ class BroadcastService : Service() {
 
         if (isBroadcastingLocally) {
             val nickname = prefs.nickname.takeIf { prefs.showNickname && it.isNotBlank() }
-            serviceScope.launch { locationRepository.postLocation(location.latitude, location.longitude, nickname) }
+            val speedKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
+            serviceScope.launch { locationRepository.postLocation(location.latitude, location.longitude, speedKmh, nickname) }
 
             if (System.currentTimeMillis() >= rideEndDeadlineMillis) {
                 AppLog.i(TAG, "Safety timer expired, ending broadcast for this device")
@@ -197,6 +199,9 @@ class BroadcastService : Service() {
         geofenceAnchor = null
         prefs.isBroadcasting = false
         RideSessionState.isThisDeviceBroadcasting.postValue(false)
+        // Best-effort: drop this device out of the aggregate immediately rather
+        // than waiting up to STALE_AFTER_SECONDS for it to age out on its own.
+        serviceScope.launch { locationRepository.clearOwnLocation() }
     }
 
     private fun ensureServiceChannel() {

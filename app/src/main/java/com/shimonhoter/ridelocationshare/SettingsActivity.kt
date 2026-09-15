@@ -64,6 +64,14 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
 
+        binding.seekLocationUpdateInterval.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                updateLocationUpdateIntervalLabel(progress)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
         binding.btnSave.setOnClickListener { save() }
     }
 
@@ -78,6 +86,9 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.seekGeofenceRadius.progress = prefs.geofenceRadiusMeters
         updateGeofenceLabel(prefs.geofenceRadiusMeters)
+
+        binding.seekLocationUpdateInterval.progress = prefs.locationUpdateIntervalSeconds
+        updateLocationUpdateIntervalLabel(prefs.locationUpdateIntervalSeconds)
 
         binding.etTripDuration.setText(prefs.tripDurationMinutes.toString())
         binding.etSafetyMargin.setText(prefs.safetyMarginMinutes.toString())
@@ -96,6 +107,10 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateGeofenceLabel(radius: Int) {
         binding.tvGeofenceRadiusValue.text = getString(R.string.geofence_radius_label) + ": ${radius}m"
+    }
+
+    private fun updateLocationUpdateIntervalLabel(seconds: Int) {
+        binding.tvLocationUpdateIntervalValue.text = getString(R.string.location_update_interval_label) + ": ${seconds}s"
     }
 
     private fun setOrigin(point: GeoPoint) {
@@ -179,6 +194,7 @@ class SettingsActivity : AppCompatActivity() {
         prefs.origin = pendingOrigin
         prefs.destination = pendingDestination
         prefs.geofenceRadiusMeters = binding.seekGeofenceRadius.progress
+        prefs.locationUpdateIntervalSeconds = binding.seekLocationUpdateInterval.progress
         prefs.tripDurationMinutes = binding.etTripDuration.text?.toString()?.toIntOrNull() ?: prefs.tripDurationMinutes
         prefs.safetyMarginMinutes = binding.etSafetyMargin.text?.toString()?.toIntOrNull() ?: prefs.safetyMarginMinutes
         prefs.activeWindowStartMinutes = timeToMinutes(binding.etActiveWindowStart.text?.toString(), prefs.activeWindowStartMinutes)

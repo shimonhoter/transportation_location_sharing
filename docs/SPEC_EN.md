@@ -135,22 +135,47 @@ operation.
   custom stdlib-only Python HTTP server on Render.com; it was retired in
   favor of Firebase to remove the need to run and pay attention to any
   server at all, and to get live push updates for free instead of polling.
-- **Data model:** exactly one node, `rideLocation`, holding `{lat, lon,
-  nickname, updatedAt}` — overwritten on every write regardless of which
-  device sent it (last-write-wins, no history, no per-device sub-nodes).
+- **Data model:** each broadcasting device writes to its own child node,
+  `rideLocation/devices/<uid>` (keyed by its Firebase Anonymous Auth UID),
+  holding `{lat, lon, speedKmh, nickname, updatedAt}`. There is no single
+  shared value and no history — a device only ever holds its own latest
+  sample, overwritten on every write, and removes its own node outright
+  when it stops broadcasting.
 - **Auth:** Firebase Anonymous Authentication. Every device signs in
   anonymously (no login UI, no per-user identity) before its first read or
   write; this replaces the old shared-token model with the same trust
   boundary — anyone running the app can read/write, nobody outside it can.
-- **Staleness:** there is no server-side TTL. A sample older than
-  `RideConfig.STALE_AFTER_SECONDS` (90s) is treated as "no active ride" by
-  the client reading it — the same effective behavior the old server's TTL
-  produced, just computed from the `updatedAt` timestamp instead.
-- **Delivery:** the Android app uses a live `ValueEventListener` (Realtime
-  Database push) instead of polling — both `MainActivity` (for the map) and
-  `BroadcastService` (for alert-zone checks) attach their own independent
-  listener, since a waiting passenger's map must stay live even when their
-  own device isn't broadcasting.
+  The UID this produces is also the per-device key described above.
+- **Aggregation (why a single flat value doesn't work):** with several
+  passengers potentially broadcasting from different points at once (some
+  already in the moving vehicle, others still walking toward the pickup
+  spot), last-write-wins on one shared value would show whichever device
+  happened to post most recently — meaningless. Instead, the displayed
+  ride location is computed client-side, on every read, as the average
+  position of all fresh devices whose reported speed exceeds
+  `RideConfig.MOVING_SPEED_THRESHOLD_KMH` (7 km/h) — i.e. devices plausibly
+  inside the moving vehicle rather than someone still on foot. If none
+  currently qualify (e.g. the ride is stopped at a red light, everyone
+  momentarily at 0 km/h), the aggregate falls back to averaging every
+  fresh device regardless of speed, so the ride never disappears from the
+  map just because it's briefly stationary — broadcasting itself is never
+  speed-gated; a device keeps posting on every fix for as long as it's
+  broadcasting, and only stops via the safety timer, geofence auto-stop, or
+  the manual "I got off" (docs section 3.2/3.6).
+- **Staleness:** there is no server-side TTL. Each device's sample older
+  than `RideConfig.STALE_AFTER_SECONDS` (90s) is excluded from the
+  aggregate by the client computing it — the same effective behavior the
+  old server's TTL produced, just computed from each `updatedAt` timestamp.
+- **Delivery:** the Android app uses a live `ValueEventListener` over the
+  whole `devices` node (Realtime Database push) instead of polling — both
+  `MainActivity` (for the map) and `BroadcastService` (for alert-zone
+  checks) attach their own independent listener and recompute the
+  aggregate on every change, since a waiting passenger's map must stay
+  live even when their own device isn't broadcasting.
+- **Update cadence:** how often a broadcasting device posts its location is
+  user-configurable (`Prefs.locationUpdateIntervalSeconds`, Settings
+  screen, 3-30s range, default 5s) rather than fixed — takes effect on the
+  next broadcast session start, not live mid-broadcast.
 
 ### 4.3 Firebase config is committed, database URL is fixed in code
 `app/google-services.json` is committed to the repo — it is not a secret,
@@ -176,7 +201,7 @@ in the settings screen.
 
 | Data | Where it lives |
 |---|---|
-| Current ride location (last sample only) | Firebase Realtime Database (`rideLocation` node, client-side staleness cutoff) |
+| Current ride location (aggregated, no history) | Firebase Realtime Database (`rideLocation/devices/<uid>` per device, client-side aggregation + staleness cutoff) |
 | Route history | Nowhere — never persisted |
 | Personal origin/destination/alert zones | On-device only (local prefs) |
 | Which device is currently broadcasting | Not exposed to other users at all |
