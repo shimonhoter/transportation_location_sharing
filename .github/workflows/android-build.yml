@@ -16,8 +16,20 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Resolve sdkmanager path
+        id: sdk
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools" -maxdepth 2 -name sdkmanager | sort -r | head -n1)"
+          fi
+          echo "path=$SDKMANAGER" >> "$GITHUB_OUTPUT"
+
+      - name: Accept Android SDK licenses
+        run: yes | "${{ steps.sdk.outputs.path }}" --licenses > /dev/null 2>&1 || true
+
+      - name: Install required Android SDK packages
+        run: "${{ steps.sdk.outputs.path }}" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Grant execute permission to gradlew
         run: chmod +x gradlew
