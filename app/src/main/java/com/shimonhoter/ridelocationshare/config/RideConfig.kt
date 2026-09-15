@@ -9,9 +9,7 @@ object RideConfig {
      * relying on google-services.json auto-detecting it, since the
      * downloaded config can predate the database being created.
      */
-    // TODO: replace once the Realtime Database is created in the Firebase console —
-    // copy the URL shown at the top of Build > Realtime Database.
-    const val FIREBASE_DATABASE_URL = "https://REPLACE-ME.firebasedatabase.app"
+    const val FIREBASE_DATABASE_URL = "https://transportationlocationsharing-default-rtdb.europe-west1.firebasedatabase.app"
 
     /** MapTiler API key for the streets-v4 style; empty falls back to the public MapLibre demo style. */
     const val MAPTILER_KEY = ""
