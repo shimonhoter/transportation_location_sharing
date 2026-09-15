@@ -106,6 +106,42 @@
     };
     map.addControl(new StyleSwitcherControl(), 'top-right');
 
+    // On by default at every fresh launch (no persistence across sessions —
+    // just a per-viewing preference the user can toggle off if they want to
+    // freely pan/zoom without being pulled back on every update).
+    var autoCenterEnabled = true;
+
+    function AutoCenterControl() {}
+    AutoCenterControl.prototype.onAdd = function (mapInstance) {
+      this._map = mapInstance;
+      var container = document.createElement('div');
+      container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.title = 'מרכוז אוטומטי על מיקום ההסעה';
+      btn.textContent = '🎯';
+      btn.style.opacity = autoCenterEnabled ? '1' : '0.4';
+      btn.onclick = function () {
+        autoCenterEnabled = !autoCenterEnabled;
+        btn.style.opacity = autoCenterEnabled ? '1' : '0.4';
+        if (autoCenterEnabled && rideMarker) {
+          map.easeTo({ center: rideMarker.getLngLat() });
+        }
+      };
+      container.appendChild(btn);
+      this._container = container;
+      return container;
+    };
+    AutoCenterControl.prototype.onRemove = function () {
+      this._container.parentNode.removeChild(this._container);
+      this._map = undefined;
+    };
+    // Only meaningful in view mode (MainActivity) — the only screen that
+    // ever calls updateRideLocation().
+    if (mode === 'view') {
+      map.addControl(new AutoCenterControl(), 'top-right');
+    }
+
     function setMapStyleVariant(variant) {
       if (variant === currentStyleVariant) return;
       currentStyleVariant = variant;
@@ -166,6 +202,9 @@
         rideMarker = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
       } else {
         rideMarker.setLngLat([lon, lat]);
+      }
+      if (autoCenterEnabled) {
+        map.easeTo({ center: [lon, lat], duration: 500 });
       }
     }
 

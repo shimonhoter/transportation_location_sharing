@@ -65,9 +65,13 @@ per-device history).
 - **Manual stop:** "I got off" ends broadcasting for that device
   immediately.
 
-### 3.3 Active days
-Each user configures which weekdays the automation is allowed to run on.
-Outside those days, WorkManager checks are no-ops.
+### 3.3 Active days and time windows
+Each user configures which weekdays the automation is allowed to run on,
+plus one or more daily active time windows (e.g. a morning-commute window
+AND a separate evening-return window) — ANY configured window matching is
+enough to activate automation. Windows can be added, edited, and deleted
+from the Settings screen; at least one must always remain. Outside the
+configured days/windows, WorkManager checks are no-ops.
 
 ### 3.4 Per-user settings
 - Nickname (free text) + a toggle for whether to show it at all (default:
@@ -229,6 +233,10 @@ in the settings screen.
   ended" / "broadcasting") — these must never be duplicated as separate
   overlapping messages.
 - Full-screen permission onboarding flow shown on install (see 3.7).
+- The map auto-centers on the ride's location on every update, on by
+  default at every app launch; a toggle control on the map (view mode
+  only) lets the user turn this off to freely pan/zoom without being
+  pulled back, and back on again.
 
 ## 7. Explicit Non-Goals
 

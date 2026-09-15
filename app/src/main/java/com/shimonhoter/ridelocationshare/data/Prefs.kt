@@ -42,14 +42,25 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_SAFETY_MARGIN, 20)
         set(value) = sp.edit().putInt(KEY_SAFETY_MARGIN, value).apply()
 
-    /** Minutes since midnight. Default 05:30-08:30. */
-    var activeWindowStartMinutes: Int
-        get() = sp.getInt(KEY_WINDOW_START, 5 * 60 + 30)
-        set(value) = sp.edit().putInt(KEY_WINDOW_START, value).apply()
-
-    var activeWindowEndMinutes: Int
-        get() = sp.getInt(KEY_WINDOW_END, 8 * 60 + 30)
-        set(value) = sp.edit().putInt(KEY_WINDOW_END, value).apply()
+    /** One or more daily active windows (minutes since midnight); ANY match activates automation. */
+    var activeWindows: List<TimeWindow>
+        get() {
+            val raw = sp.getString(KEY_ACTIVE_WINDOWS, null)
+            if (raw != null) {
+                val array = JSONArray(raw)
+                return (0 until array.length()).map { TimeWindow.fromJson(array.getJSONObject(it)) }
+            }
+            // Migrate a pre-existing single window from before multi-window support, if any.
+            if (sp.contains(KEY_WINDOW_START) && sp.contains(KEY_WINDOW_END)) {
+                return listOf(TimeWindow("default", sp.getInt(KEY_WINDOW_START, 5 * 60 + 30), sp.getInt(KEY_WINDOW_END, 8 * 60 + 30)))
+            }
+            return listOf(TimeWindow("default", 5 * 60 + 30, 8 * 60 + 30))
+        }
+        set(value) {
+            val array = JSONArray()
+            value.forEach { array.put(it.toJson()) }
+            sp.edit().putString(KEY_ACTIVE_WINDOWS, array.toString()).apply()
+        }
 
     /** java.util.Calendar.DAY_OF_WEEK values (1=Sunday..7=Saturday). Default Sun-Thu. */
     var activeDays: Set<Int>
@@ -116,6 +127,7 @@ class Prefs(context: Context) {
         private const val KEY_SAFETY_MARGIN = "safety_margin"
         private const val KEY_WINDOW_START = "window_start"
         private const val KEY_WINDOW_END = "window_end"
+        private const val KEY_ACTIVE_WINDOWS = "active_windows"
         private const val KEY_ACTIVE_DAYS = "active_days"
         private const val KEY_ALERT_ZONES = "alert_zones"
         private const val KEY_ALERTED_ZONE_IDS = "alerted_zone_ids"

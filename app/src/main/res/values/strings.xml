@@ -37,8 +37,13 @@
     <string name="geofence_radius_label">רדיוס גיאופנס (מטרים)</string>
     <string name="trip_duration_label">משך נסיעה צפוי (דקות)</string>
     <string name="safety_margin_label">מרווח בטיחות (דקות)</string>
-    <string name="active_window_start_label">תחילת חלון פעיל</string>
-    <string name="active_window_end_label">סוף חלון פעיל</string>
+    <string name="active_window_start_label">תחילת חלון</string>
+    <string name="active_window_end_label">סוף חלון</string>
+    <string name="active_windows_label">חלונות זמן פעילים</string>
+    <string name="add_time_window_button">הוסף חלון זמן</string>
+    <string name="delete_button">מחק</string>
+    <string name="time_window_invalid_error">שעת הסיום חייבת להיות אחרי שעת ההתחלה</string>
+    <string name="time_windows_empty_error">חייב להישאר לפחות חלון זמן פעיל אחד</string>
     <string name="location_update_interval_label">קצב עדכון מיקום</string>
     <string name="location_update_interval_hint">כל כמה שניות המכשיר שולח עדכון מיקום בזמן שידור</string>
     <string name="active_days_label">ימי פעילות</string>
