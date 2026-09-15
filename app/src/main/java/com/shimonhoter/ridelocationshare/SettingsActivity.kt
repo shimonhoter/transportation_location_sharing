@@ -17,6 +17,7 @@ import com.google.android.gms.location.LocationServices
 import com.shimonhoter.ridelocationshare.data.GeoPoint
 import com.shimonhoter.ridelocationshare.data.Prefs
 import com.shimonhoter.ridelocationshare.data.TimeWindow
+import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.databinding.ActivitySettingsBinding
 import com.shimonhoter.ridelocationshare.databinding.DialogTimeWindowBinding
 import com.shimonhoter.ridelocationshare.databinding.ItemTimeWindowBinding
@@ -265,6 +266,8 @@ class SettingsActivity : AppCompatActivity() {
         addDayIfChecked(days, binding.cbFriday, Calendar.FRIDAY)
         addDayIfChecked(days, binding.cbSaturday, Calendar.SATURDAY)
         prefs.activeDays = days
+
+        BroadcastService.refreshSettings(this)
 
         Toast.makeText(this, R.string.save_button, Toast.LENGTH_SHORT).show()
         finish()

@@ -59,10 +59,10 @@ class BroadcastService : Service() {
     private var sharedLocationListener: ValueEventListener? = null
     private var isBroadcastingLocally = false
     private var geofenceAnchor: Location? = null
-    private var rideEndDeadlineMillis: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         prefs = Prefs(this)
         fusedClient = LocationServices.getFusedLocationProviderClient(this)
         ensureServiceChannel()
@@ -95,6 +95,7 @@ class BroadcastService : Service() {
             }
             ACTION_MANUAL_BROADCAST -> beginBroadcasting()
             ACTION_AUTO_START -> Unit // fall through to ensure monitoring below
+            ACTION_REFRESH_SETTINGS -> refreshLocationUpdates()
         }
 
         ensureMonitoring()
@@ -102,6 +103,7 @@ class BroadcastService : Service() {
     }
 
     override fun onDestroy() {
+        isRunning = false
         locationCallback?.let { fusedClient.removeLocationUpdates(it) }
         sharedLocationListener?.let { locationRepository.removeListener(it) }
         serviceScope.cancel()
@@ -109,6 +111,15 @@ class BroadcastService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /** Tears down the current location callback and rebuilds it, so a changed
+     * [Prefs.locationUpdateIntervalSeconds] takes effect immediately rather than
+     * only on the next broadcast session start. */
+    private fun refreshLocationUpdates() {
+        locationCallback?.let { fusedClient.removeLocationUpdates(it) }
+        locationCallback = null
+        ensureMonitoring()
+    }
 
     private fun ensureMonitoring() {
         if (locationCallback != null) return
@@ -146,7 +157,7 @@ class BroadcastService : Service() {
             val speedKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
             serviceScope.launch { locationRepository.postLocation(location.latitude, location.longitude, speedKmh, nickname) }
 
-            if (System.currentTimeMillis() >= rideEndDeadlineMillis) {
+            if (System.currentTimeMillis() >= rideEndDeadlineMillis()) {
                 AppLog.i(TAG, "Safety timer expired, ending broadcast for this device")
                 stopBroadcasting()
                 stopSelf()
@@ -183,12 +194,16 @@ class BroadcastService : Service() {
         }
     }
 
+    /** Computed live from current prefs on every check, rather than cached at
+     * broadcast start, so a changed trip duration / safety margin applies
+     * immediately mid-ride instead of only on the next ride. */
+    private fun rideEndDeadlineMillis(): Long =
+        prefs.rideStartTimeMillis + (prefs.tripDurationMinutes + prefs.safetyMarginMinutes) * 60_000L
+
     private fun beginBroadcasting() {
         isBroadcastingLocally = true
         prefs.isBroadcasting = true
         prefs.rideStartTimeMillis = System.currentTimeMillis()
-        rideEndDeadlineMillis = System.currentTimeMillis() +
-            (prefs.tripDurationMinutes + prefs.safetyMarginMinutes) * 60_000L
         RideSessionState.isThisDeviceBroadcasting.postValue(true)
         updateNotification()
         ensureMonitoring()
@@ -243,10 +258,27 @@ class BroadcastService : Service() {
         private const val ACTION_AUTO_START = "com.shimonhoter.ridelocationshare.action.AUTO_START"
         private const val ACTION_MANUAL_BROADCAST = "com.shimonhoter.ridelocationshare.action.MANUAL_BROADCAST"
         private const val ACTION_STOP = "com.shimonhoter.ridelocationshare.action.STOP"
+        private const val ACTION_REFRESH_SETTINGS = "com.shimonhoter.ridelocationshare.action.REFRESH_SETTINGS"
+
+        /** Whether an instance of this service is currently alive. Lets callers
+         * (e.g. the Settings screen) decide whether it's meaningful to push a
+         * live settings refresh, without spuriously starting the service. */
+        @Volatile
+        var isRunning: Boolean = false
+            private set
 
         fun startAutomatic(context: Context) = dispatch(context, ACTION_AUTO_START)
         fun startManualBroadcast(context: Context) = dispatch(context, ACTION_MANUAL_BROADCAST)
         fun stop(context: Context) = dispatch(context, ACTION_STOP)
+
+        /** Applies changed Settings (location update interval, trip duration,
+         * safety margin) to an already-running service immediately, instead of
+         * waiting for the next broadcast session or service restart. No-op if
+         * the service isn't currently running. */
+        fun refreshSettings(context: Context) {
+            if (!isRunning) return
+            dispatch(context, ACTION_REFRESH_SETTINGS)
+        }
 
         private fun dispatch(context: Context, action: String) {
             // A foreground service declared with foregroundServiceType="location" must
