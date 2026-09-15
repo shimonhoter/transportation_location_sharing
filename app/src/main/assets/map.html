@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Ride Map</title>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    html, body, #map { height: 100%; margin: 0; padding: 0; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    // Shared map page used by MainActivity (mode=view), MapPickerActivity
+    // (mode=pick) and AlertZonesActivity (mode=zones). Kotlin drives it via
+    // evaluateJavascript() calls into the functions below; this page talks
+    // back to Kotlin through the injected `Android` JavascriptInterface.
+
+    function queryParam(name, fallback) {
+      var params = new URLSearchParams(window.location.search);
+      return params.has(name) ? params.get(name) : fallback;
+    }
+
+    var maptilerKey = queryParam('maptilerKey', '');
+    var mode = queryParam('mode', 'view');
+    var initialLat = parseFloat(queryParam('lat', '32.0853'));
+    var initialLon = parseFloat(queryParam('lon', '34.7818'));
+    var initialZoom = parseFloat(queryParam('zoom', '13'));
+
+    var styleUrl = maptilerKey
+      ? 'https://api.maptiler.com/maps/streets-v4/style.json?key=' + encodeURIComponent(maptilerKey)
+      : 'https://demotiles.maplibre.org/style.json';
+
+    var map = new maplibregl.Map({
+      container: 'map',
+      style: styleUrl,
+      center: [initialLon, initialLat],
+      zoom: initialZoom
+    });
+    map.addControl(new maplibregl.NavigationControl(), 'top-left');
+
+    var rideMarker = null;
+    var zoneSourceId = 'alert-zones';
+
+    map.on('load', function () {
+      map.addSource(zoneSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: zoneSourceId + '-fill',
+        type: 'fill',
+        source: zoneSourceId,
+        paint: { 'fill-color': '#C0392B', 'fill-opacity': 0.2 }
+      });
+      map.addLayer({
+        id: zoneSourceId + '-outline',
+        type: 'line',
+        source: zoneSourceId,
+        paint: { 'line-color': '#C0392B', 'line-width': 2 }
+      });
+      if (window.Android && Android.onMapReady) {
+        Android.onMapReady();
+      }
+    });
+
+    if (mode === 'zones') {
+      map.on('click', function (e) {
+        if (window.Android && Android.onMapTap) {
+          Android.onMapTap(e.lngLat.lat, e.lngLat.lng);
+        }
+      });
+    }
+
+    // --- Functions called from Kotlin via evaluateJavascript ---
+
+    function updateRideLocation(lat, lon) {
+      if (!rideMarker) {
+        var el = document.createElement('div');
+        el.style.width = '18px';
+        el.style.height = '18px';
+        el.style.borderRadius = '50%';
+        el.style.background = '#2E7D6B';
+        el.style.border = '3px solid #FFFFFF';
+        el.style.boxShadow = '0 0 6px rgba(0,0,0,0.4)';
+        rideMarker = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
+      } else {
+        rideMarker.setLngLat([lon, lat]);
+      }
+    }
+
+    function clearRideLocation() {
+      if (rideMarker) {
+        rideMarker.remove();
+        rideMarker = null;
+      }
+    }
+
+    function centerMap(lat, lon, zoom) {
+      map.jumpTo({ center: [lon, lat], zoom: zoom || map.getZoom() });
+    }
+
+    // zonesJson: JSON string of [{id, lat, lon, radiusMeters, name}]
+    function setAlertZones(zonesJson) {
+      var zones = JSON.parse(zonesJson);
+      var features = zones.map(function (zone) {
+        return { type: 'Feature', properties: { id: zone.id, name: zone.name }, geometry: circlePolygon(zone.lat, zone.lon, zone.radiusMeters) };
+      });
+      var source = map.getSource(zoneSourceId);
+      if (source) {
+        source.setData({ type: 'FeatureCollection', features: features });
+      }
+    }
+
+    function circlePolygon(lat, lon, radiusMeters, points) {
+      points = points || 48;
+      var coords = [];
+      var earthRadius = 6371000;
+      var latRad = lat * Math.PI / 180;
+      for (var i = 0; i <= points; i++) {
+        var angle = (i / points) * 2 * Math.PI;
+        var dx = radiusMeters * Math.cos(angle);
+        var dy = radiusMeters * Math.sin(angle);
+        var dLat = dy / earthRadius;
+        var dLon = dx / (earthRadius * Math.cos(latRad));
+        coords.push([lon + (dLon * 180 / Math.PI), lat + (dLat * 180 / Math.PI)]);
+      }
+      return { type: 'Polygon', coordinates: [coords] };
+    }
+
+    function getCenter() {
+      var c = map.getCenter();
+      return c.lat + ',' + c.lng;
+    }
+  </script>
+</body>
+</html>

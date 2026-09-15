@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">שיתוף מיקום הסעה</string>
+
+    <!-- Permissions onboarding -->
+    <string name="permissions_title">הרשאות נדרשות</string>
+    <string name="permissions_intro">כדי לשדר את מיקום ההסעה אוטומטית, האפליקציה זקוקה להרשאות הבאות:</string>
+    <string name="permission_foreground_location_title">מיקום</string>
+    <string name="permission_foreground_location_desc">נדרש כדי לזהות מתי ההסעה יצאה לדרך.</string>
+    <string name="permission_background_location_title">מיקום ברקע</string>
+    <string name="permission_background_location_desc">נדרש כדי להמשיך לשדר גם כשהאפליקציה סגורה.</string>
+    <string name="permission_notifications_title">התראות</string>
+    <string name="permission_notifications_desc">נדרש כדי להתריע כשההסעה מתקרבת לאזור שסימנת.</string>
+    <string name="permission_grant_button">אשר הרשאה</string>
+    <string name="permission_denied_open_settings">ההרשאה נדחתה. יש לאשר אותה ידנית בהגדרות המערכת.</string>
+    <string name="permission_open_settings_button">פתח הגדרות</string>
+    <string name="permission_continue_button">המשך</string>
+
+    <!-- Main screen -->
+    <string name="status_no_data">אין נתוני הסעה עדיין</string>
+    <string name="status_broadcasting">משדר מיקום כעת</string>
+    <string name="status_ride_ended">הנסיעה הסתיימה</string>
+    <string name="broadcast_now_button">שדר עכשיו</string>
+    <string name="got_off_button">ירדתי</string>
+    <string name="settings_menu_item">הגדרות</string>
+    <string name="alert_zones_menu_item">אזורי התראה</string>
+
+    <!-- Settings -->
+    <string name="settings_title">הגדרות</string>
+    <string name="nickname_label">כינוי (אופציונלי)</string>
+    <string name="show_nickname_label">הצג כינוי לאחרים</string>
+    <string name="origin_label">מיקום מוצא</string>
+    <string name="destination_label">מיקום יעד</string>
+    <string name="use_current_location_button">השתמש במיקום הנוכחי</string>
+    <string name="pick_on_map_button">בחר על המפה</string>
+    <string name="geofence_radius_label">רדיוס גיאופנס (מטרים)</string>
+    <string name="trip_duration_label">משך נסיעה צפוי (דקות)</string>
+    <string name="safety_margin_label">מרווח בטיחות (דקות)</string>
+    <string name="active_window_start_label">תחילת חלון פעיל</string>
+    <string name="active_window_end_label">סוף חלון פעיל</string>
+    <string name="active_days_label">ימי פעילות</string>
+    <string name="save_button">שמור</string>
+
+    <!-- Alert zones -->
+    <string name="alert_zones_title">אזורי התראה אישיים</string>
+    <string name="alert_zones_hint">הקש על המפה כדי להוסיף אזור התראה</string>
+    <string name="alert_zone_radius_label">רדיוס אזור (מטרים)</string>
+    <string name="alert_zone_name_label">שם האזור</string>
+    <string name="delete_zone_button">מחק אזור</string>
+
+    <!-- Map picker -->
+    <string name="map_picker_confirm">אשר מיקום</string>
+
+    <!-- Days of week -->
+    <string name="day_sunday">א׳</string>
+    <string name="day_monday">ב׳</string>
+    <string name="day_tuesday">ג׳</string>
+    <string name="day_wednesday">ד׳</string>
+    <string name="day_thursday">ה׳</string>
+    <string name="day_friday">ו׳</string>
+    <string name="day_saturday">ש׳</string>
+</resources>

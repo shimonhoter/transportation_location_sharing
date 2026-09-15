@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared spacing scale, referenced from UiKit.kt -->
+    <dimen name="spacing_xs">4dp</dimen>
+    <dimen name="spacing_sm">8dp</dimen>
+    <dimen name="spacing_md">16dp</dimen>
+    <dimen name="spacing_lg">24dp</dimen>
+    <dimen name="spacing_xl">32dp</dimen>
+
+    <dimen name="card_corner_radius">20dp</dimen>
+    <dimen name="card_elevation">6dp</dimen>
+    <dimen name="card_elevation_raised">12dp</dimen>
+
+    <dimen name="text_size_body">16sp</dimen>
+    <dimen name="text_size_title">22sp</dimen>
+    <dimen name="text_size_caption">13sp</dimen>
+</resources>
