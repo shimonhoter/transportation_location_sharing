@@ -79,6 +79,14 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
 
+        binding.seekCorroborationRadius.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                updateCorroborationRadiusLabel(progress)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
         binding.btnSave.setOnClickListener { save() }
         binding.btnSettingsHelp.setOnClickListener { showHelp() }
     }
@@ -105,6 +113,9 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.seekLocationUpdateInterval.progress = prefs.locationUpdateIntervalSeconds
         updateLocationUpdateIntervalLabel(prefs.locationUpdateIntervalSeconds)
+
+        binding.seekCorroborationRadius.progress = prefs.corroborationRadiusMeters
+        updateCorroborationRadiusLabel(prefs.corroborationRadiusMeters)
 
         binding.etTripDuration.setText(prefs.tripDurationMinutes.toString())
         binding.etSafetyMargin.setText(prefs.safetyMarginMinutes.toString())
@@ -178,6 +189,10 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateLocationUpdateIntervalLabel(seconds: Int) {
         binding.tvLocationUpdateIntervalValue.text = getString(R.string.location_update_interval_label) + ": ${seconds}s"
+    }
+
+    private fun updateCorroborationRadiusLabel(radius: Int) {
+        binding.tvCorroborationRadiusValue.text = getString(R.string.corroboration_radius_label) + ": ${radius}m"
     }
 
     private fun setOrigin(point: GeoPoint) {
@@ -262,6 +277,7 @@ class SettingsActivity : AppCompatActivity() {
         prefs.destination = pendingDestination
         prefs.geofenceRadiusMeters = binding.seekGeofenceRadius.progress
         prefs.locationUpdateIntervalSeconds = binding.seekLocationUpdateInterval.progress
+        prefs.corroborationRadiusMeters = binding.seekCorroborationRadius.progress
         prefs.tripDurationMinutes = binding.etTripDuration.text?.toString()?.toIntOrNull() ?: prefs.tripDurationMinutes
         prefs.safetyMarginMinutes = binding.etSafetyMargin.text?.toString()?.toIntOrNull() ?: prefs.safetyMarginMinutes
         prefs.activeWindows = pendingTimeWindows.toList()

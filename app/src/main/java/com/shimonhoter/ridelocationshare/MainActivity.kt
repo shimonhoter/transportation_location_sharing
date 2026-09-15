@@ -59,6 +59,11 @@ class MainActivity : AppCompatActivity() {
         }
         binding.btnHelp.setOnClickListener { showHelp() }
 
+        binding.switchSkipToday.isChecked = prefs.isSkippedToday()
+        binding.switchSkipToday.setOnCheckedChangeListener { _, isChecked ->
+            prefs.setSkipToday(isChecked)
+        }
+
         RideSessionState.currentLocation.observe(this) { location -> renderStatus(location) }
 
         // Reflects whether THIS device is broadcasting, independent of the
@@ -72,7 +77,7 @@ class MainActivity : AppCompatActivity() {
         // Keep the map live even when BroadcastService isn't running (e.g. a
         // waiting passenger who hasn't broadcast anything themselves yet) —
         // Firebase pushes updates directly, no polling needed.
-        locationListener = repository.observeLocation { location ->
+        locationListener = repository.observeLocation({ prefs.corroborationRadiusMeters }) { location ->
             RideSessionState.currentLocation.value = location
         }
     }

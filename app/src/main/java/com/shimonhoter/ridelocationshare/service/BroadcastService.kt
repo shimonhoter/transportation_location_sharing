@@ -72,7 +72,7 @@ class BroadcastService : Service() {
         // A single persistent listener for the shared ride location, independent
         // of this device's own GPS fix cadence — covers alert-zone checks even
         // when this device never itself qualifies to broadcast.
-        sharedLocationListener = locationRepository.observeLocation { shared ->
+        sharedLocationListener = locationRepository.observeLocation({ prefs.corroborationRadiusMeters }) { shared ->
             val wasActive = RideSessionState.currentLocation.value != null
             RideSessionState.currentLocation.value = shared
 
@@ -179,6 +179,7 @@ class BroadcastService : Service() {
 
     /** Start condition: inside the origin geofence AND has moved beyond the minimum threshold since. */
     private fun checkAutoStartCondition(location: Location) {
+        if (prefs.isSkippedToday()) return
         val origin = prefs.origin ?: return
         val distanceFromOrigin = GeoUtil.distanceMeters(location.latitude, location.longitude, origin.lat, origin.lon)
 

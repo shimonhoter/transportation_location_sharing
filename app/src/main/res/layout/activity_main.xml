@@ -100,6 +100,14 @@
                 android:textStyle="bold"
                 android:visibility="gone" />
 
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchSkipToday"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/spacing_sm"
+                android:text="@string/skip_today_label"
+                android:textSize="@dimen/text_size_caption" />
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.shimonhoter.ridelocationshare.config.RideConfig
 import org.json.JSONArray
+import java.util.Calendar
 
 /**
  * All per-user settings and local ride state. Everything here stays on the
@@ -98,6 +99,23 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_LOCATION_UPDATE_INTERVAL, RideConfig.DEFAULT_LOCATION_UPDATE_INTERVAL_SECONDS)
         set(value) = sp.edit().putInt(KEY_LOCATION_UPDATE_INTERVAL, value).apply()
 
+    var corroborationRadiusMeters: Int
+        get() = sp.getInt(KEY_CORROBORATION_RADIUS, RideConfig.DEFAULT_CORROBORATION_RADIUS_METERS)
+        set(value) = sp.edit().putInt(KEY_CORROBORATION_RADIUS, value).apply()
+
+    /** Encodes the day this device was last marked "not riding" as year*1000+dayOfYear, so it self-clears on any other day without needing a scheduled reset. */
+    private var skippedRideDayKey: Int
+        get() = sp.getInt(KEY_SKIPPED_RIDE_DAY, 0)
+        set(value) = sp.edit().putInt(KEY_SKIPPED_RIDE_DAY, value).apply()
+
+    fun isSkippedToday(now: Calendar = Calendar.getInstance()): Boolean = skippedRideDayKey == dayKey(now)
+
+    fun setSkipToday(skip: Boolean, now: Calendar = Calendar.getInstance()) {
+        skippedRideDayKey = if (skip) dayKey(now) else 0
+    }
+
+    private fun dayKey(cal: Calendar): Int = cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
+
     private fun readPoint(latKey: String, lonKey: String): GeoPoint? {
         if (!sp.contains(latKey) || !sp.contains(lonKey)) return null
         val lat = sp.getFloat(latKey, 0f).toDouble()
@@ -134,6 +152,8 @@ class Prefs(context: Context) {
         private const val KEY_IS_BROADCASTING = "is_broadcasting"
         private const val KEY_RIDE_START_TIME = "ride_start_time"
         private const val KEY_LOCATION_UPDATE_INTERVAL = "location_update_interval_seconds"
+        private const val KEY_CORROBORATION_RADIUS = "corroboration_radius"
+        private const val KEY_SKIPPED_RIDE_DAY = "skipped_ride_day_key"
 
         // Sunday(1)-Thursday(5): the default Israeli work week.
         private val DEFAULT_ACTIVE_DAYS = setOf("1", "2", "3", "4", "5")

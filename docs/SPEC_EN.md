@@ -64,6 +64,13 @@ per-device history).
   by itself.
 - **Manual stop:** "I got off" ends broadcasting for that device
   immediately.
+- **Manual opt-out:** "Not riding today" (main screen) suppresses the
+  automatic start condition entirely for the rest of the current day, for
+  a passenger who knows in advance they're taking their own vehicle instead
+  of the shared ride — the one case speed/movement alone cannot distinguish
+  from actually being in the shared ride (see 4.2's corroboration note).
+  Self-clears the next day; does not block the manual "Broadcast now"
+  override.
 
 ### 3.3 Active days and time windows
 Each user configures which weekdays the automation is allowed to run on,
@@ -189,6 +196,23 @@ operation.
   section 3.2/3.6) — the grace-window exclusion only affects whether that
   device's samples are counted in the aggregate, not whether it keeps
   transmitting.
+- **Corroboration (telling the shared ride apart from a passenger's own
+  car):** speed and movement alone cannot distinguish a passenger driving
+  their own private vehicle from the origin from actually being in the
+  shared ride — both look identical to the app ("left the origin, then
+  moved fast"). So a device in the recently-moving set above only counts
+  toward the aggregate if at least one *other* recently-moving device is
+  within `Prefs.corroborationRadiusMeters` of it (Settings screen,
+  50-1000m range, default 300m, read fresh on every aggregate computation
+  so a change applies immediately) — several devices moving together
+  plausibly are the same vehicle, while a lone mover isn't shown as the
+  ride location at all. This is a secondary safety net with a real
+  trade-off: a single genuine early rider (before a second device is also
+  moving nearby) also won't show until corroborated. The reliable,
+  primary fix for someone who knows in advance they're taking their own
+  car is the manual "not riding today" override (section 3.2), which
+  prevents their device from auto-starting a broadcast in the first place
+  regardless of corroboration.
 - **Staleness:** there is no server-side TTL. Each device's sample older
   than `RideConfig.STALE_AFTER_SECONDS` (90s) is excluded from the
   aggregate by the client computing it — the same effective behavior the
@@ -201,8 +225,10 @@ operation.
   live even when their own device isn't broadcasting.
 - **Update cadence:** how often a broadcasting device posts its location is
   user-configurable (`Prefs.locationUpdateIntervalSeconds`, Settings
-  screen, 3-30s range, default 5s) rather than fixed — takes effect on the
-  next broadcast session start, not live mid-broadcast.
+  screen, 3-30s range, default 5s) rather than fixed. Saving Settings while
+  `BroadcastService` is already running applies this (and the trip
+  duration/safety margin, which redefine the safety-timer deadline) to the
+  live broadcast immediately, not just on the next session start.
 
 ### 4.3 Firebase config is committed, database URL is fixed in code
 `app/google-services.json` is committed to the repo — it is not a secret,

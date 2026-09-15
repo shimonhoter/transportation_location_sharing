@@ -6,6 +6,7 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import com.shimonhoter.ridelocationshare.config.RideConfig
+import com.shimonhoter.ridelocationshare.util.GeoUtil
 import kotlinx.coroutines.tasks.await
 
 data class RideLocation(val lat: Double, val lon: Double, val nickname: String?, val ageSeconds: Double)
@@ -38,11 +39,16 @@ private data class DeviceSample(
  * below the threshold for longer than the grace window (e.g. a passenger
  * who got off and is now on foot), it is excluded from the aggregate
  * entirely rather than its now-irrelevant, jittery position dragging or
- * replacing the shown ride location. No history is kept: stale per-device
- * entries are filtered out by age, not stored (docs/SPEC_EN.md section 5).
- * Every device signs in anonymously rather than carrying a per-user
- * credential (the old shared-token model has no server-side equivalent in
- * Firebase).
+ * replacing the shown ride location. A moving device is further only
+ * trusted if corroborated by at least one other moving device within
+ * [RideConfig.DEFAULT_CORROBORATION_RADIUS_METERS] (see
+ * Prefs.corroborationRadiusMeters) — speed alone can't tell a passenger's
+ * private car apart from the shared ride, but a lone mover with nobody
+ * else nearby isn't shown as the ride location. No history is kept: stale
+ * per-device entries are filtered out by age, not stored (docs/SPEC_EN.md
+ * section 5). Every device signs in anonymously rather than carrying a
+ * per-user credential (the old shared-token model has no server-side
+ * equivalent in Firebase).
  */
 class FirebaseLocationRepository {
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
@@ -88,12 +94,15 @@ class FirebaseLocationRepository {
     /**
      * Attaches a live listener over all devices; the callback fires
      * immediately with the current aggregate and again on every subsequent
-     * change to any device's entry.
+     * change to any device's entry. [corroborationRadiusMeters] is invoked
+     * fresh on every firing (not just once at attach time) so a changed
+     * Settings value applies immediately, matching how every other setting
+     * in this app behaves.
      */
-    fun observeLocation(onChange: (RideLocation?) -> Unit): ValueEventListener {
+    fun observeLocation(corroborationRadiusMeters: () -> Int, onChange: (RideLocation?) -> Unit): ValueEventListener {
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                onChange(aggregate(snapshot))
+                onChange(aggregate(snapshot, corroborationRadiusMeters()))
             }
 
             override fun onCancelled(error: DatabaseError) {
@@ -108,7 +117,7 @@ class FirebaseLocationRepository {
         devicesRef.removeEventListener(listener)
     }
 
-    private fun aggregate(snapshot: DataSnapshot): RideLocation? {
+    private fun aggregate(snapshot: DataSnapshot, corroborationRadiusMeters: Int): RideLocation? {
         val now = System.currentTimeMillis()
         val fresh = snapshot.children.mapNotNull { parseSample(it, now) }
         if (fresh.isEmpty()) return null
@@ -117,14 +126,27 @@ class FirebaseLocationRepository {
         val hasEverMoved = fresh.filter { it.lastMovingAtMillis > 0L }
         val recentlyMoving = hasEverMoved.filter { now - it.lastMovingAtMillis <= graceMillis }
 
-        // Prefer devices confirmed moving recently. If none qualify but some
-        // devices have never yet registered a moving sample (e.g. the ride
-        // just started), average all fresh devices as a startup fallback.
-        // If every fresh device HAS moved before but all are now outside the
-        // grace window, they've likely gotten off and are on foot — exclude
-        // them rather than show their stale position.
+        // Corroboration: a moving device only counts if at least one OTHER
+        // moving device is within corroborationRadiusMeters of it. Speed
+        // alone can't tell a passenger's own private car apart from the
+        // shared ride — both look like "left the origin, then moved fast" —
+        // but several devices moving together near each other plausibly are
+        // the same vehicle, while a lone mover isn't shown as the ride.
+        val corroborated = recentlyMoving.filter { candidate ->
+            recentlyMoving.any { other ->
+                other !== candidate && GeoUtil.distanceMeters(candidate.lat, candidate.lon, other.lat, other.lon) <= corroborationRadiusMeters
+            }
+        }
+
+        // Prefer corroborated, currently/recently moving devices. If none
+        // qualify but some devices have never yet registered a moving
+        // sample (e.g. the ride just started), average all fresh devices as
+        // a startup fallback. If every fresh device HAS moved before but
+        // none are corroborated right now (gotten off and on foot, or off
+        // on their own uncorroborated), exclude them rather than show a
+        // stale or unverified position.
         val chosen = when {
-            recentlyMoving.isNotEmpty() -> recentlyMoving
+            corroborated.isNotEmpty() -> corroborated
             hasEverMoved.size < fresh.size -> fresh
             else -> return null
         }

@@ -38,6 +38,22 @@ object RideConfig {
      */
     const val RECENTLY_MOVING_GRACE_SECONDS = 90.0
 
+    /**
+     * Corroboration: a moving device is only trusted as (part of) the ride
+     * location if at least one OTHER moving device is within this many
+     * meters of it. Speed alone can't tell a passenger's private car apart
+     * from the shared ride — both look like "left the origin, then moved
+     * fast" — but several devices moving together near each other plausibly
+     * are the same vehicle, while a lone mover isn't shown at all. This is
+     * a secondary safety net; the reliable fix for someone who knows in
+     * advance they're taking their own car is Prefs.isSkippedToday()
+     * ("not riding today"). User-configurable via Settings
+     * (Prefs.corroborationRadiusMeters); this is only the default/bounds.
+     */
+    const val DEFAULT_CORROBORATION_RADIUS_METERS = 300
+    const val MIN_CORROBORATION_RADIUS_METERS = 50
+    const val MAX_CORROBORATION_RADIUS_METERS = 1000
+
     /** User-configurable via Settings (Prefs.locationUpdateIntervalSeconds); this is only the default/bounds. */
     const val DEFAULT_LOCATION_UPDATE_INTERVAL_SECONDS = 5
     const val MIN_LOCATION_UPDATE_INTERVAL_SECONDS = 3
