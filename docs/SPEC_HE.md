@@ -109,7 +109,13 @@
   bridge. (ה-SDK הנייטיבי של MapLibre לאנדרואיד נוסה תחילה ונזנח — הוא
   מרנדר מסך ריק/שחור בחלק ממעבדי ה-GPU מסוג Mali, למשל במכשירי
   Xiaomi/Redmi נפוצים, למרות טעינת style מוצלחת.)
-- **ספק אריחי מפה:** MapTiler (free tier), style `streets-v4`.
+- **ספק אריחי מפה:** מקורות חינמיים לגמרי, בלי מפתח API ובלי הרשמה.
+  רחובות: ה-style `liberty` המתארח של [OpenFreeMap](https://openfreemap.org),
+  תואם ישירות ל-MapLibre. לוויין: אריחי raster ציבוריים של Esri World
+  Imagery, מחוברים כ-style מינימלי מוטמע (source/layer יחיד מסוג raster),
+  מכיוון ש-OpenFreeMap הוא vector בלבד. בקרת מתג על המפה עצמה מחליפה בין
+  השניים (`app/src/main/assets/map.html`); הגדרה מבוססת MapTiler שדרשה
+  מפתח API נוסתה תחילה ונזנחה לטובת המקורות החינמיים האלה.
 - **עבודה ברקע:** `Service` בחזית (foreground) לשידור פעיל, ו-`WorkManager`
   תקופתי לבדיקת התזמון האוטומטי כל 15 דקות.
 - **אבחון:** לוג פנים-אפליקטיבי (`AppLog`) ולוג קריסות, מכיוון שגישת

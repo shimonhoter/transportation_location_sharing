@@ -2,7 +2,6 @@ package com.shimonhoter.ridelocationshare.ui
 
 import android.net.Uri
 import android.webkit.WebView
-import com.shimonhoter.ridelocationshare.config.RideConfig
 
 /**
  * Loads the shared assets/map.html (WebView + MapLibre GL JS) consistently
@@ -27,7 +26,6 @@ fun WebView.loadRideMap(
         .appendQueryParameter("lat", centerLat.toString())
         .appendQueryParameter("lon", centerLon.toString())
         .appendQueryParameter("zoom", zoom.toString())
-        .appendQueryParameter("maptilerKey", RideConfig.MAPTILER_KEY)
         .build()
         .toString()
     loadUrl(url)

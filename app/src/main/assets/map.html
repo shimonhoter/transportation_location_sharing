@@ -23,25 +23,42 @@
       return params.has(name) ? params.get(name) : fallback;
     }
 
-    var maptilerKey = queryParam('maptilerKey', '');
     var mode = queryParam('mode', 'view');
     var initialLat = parseFloat(queryParam('lat', '32.0853'));
     var initialLon = parseFloat(queryParam('lon', '34.7818'));
     var initialZoom = parseFloat(queryParam('zoom', '13'));
 
-    // Without a MapTiler key there is no keyless source of real street/
-    // satellite tiles, so both variants fall back to MapLibre's minimal
-    // demo style (borders only, no roads) — see docs/SPEC_EN.md 4.1.
-    function styleUrlFor(variant) {
-      if (!maptilerKey) return 'https://demotiles.maplibre.org/style.json';
-      var styleId = variant === 'satellite' ? 'hybrid' : 'streets-v4';
-      return 'https://api.maptiler.com/maps/' + styleId + '/style.json?key=' + encodeURIComponent(maptilerKey);
+    // Fully free, keyless tile sources — no signup, no API key, no usage
+    // quota to manage (see docs/SPEC_EN.md 4.1):
+    // - streets: OpenFreeMap's hosted vector style, a MapLibre-native
+    //   drop-in with real roads/labels (https://openfreemap.org).
+    // - satellite: Esri's public World Imagery raster tiles, built as a
+    //   minimal inline MapLibre style object (a single raster source/layer)
+    //   since OpenFreeMap doesn't offer imagery.
+    var OPEN_FREE_MAP_STREETS_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+    var ESRI_SATELLITE_STYLE = {
+      version: 8,
+      sources: {
+        'esri-satellite': {
+          type: 'raster',
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tileSize: 256,
+          attribution: 'Esri, Maxar, Earthstar Geographics'
+        }
+      },
+      layers: [
+        { id: 'esri-satellite-layer', type: 'raster', source: 'esri-satellite' }
+      ]
+    };
+
+    function styleFor(variant) {
+      return variant === 'satellite' ? ESRI_SATELLITE_STYLE : OPEN_FREE_MAP_STREETS_STYLE;
     }
 
     var currentStyleVariant = 'streets';
     var map = new maplibregl.Map({
       container: 'map',
-      style: styleUrlFor(currentStyleVariant),
+      style: styleFor(currentStyleVariant),
       center: [initialLon, initialLat],
       zoom: initialZoom
     });
@@ -82,7 +99,7 @@
     function setMapStyleVariant(variant) {
       if (variant === currentStyleVariant) return;
       currentStyleVariant = variant;
-      map.setStyle(styleUrlFor(variant));
+      map.setStyle(styleFor(variant));
     }
 
     var rideMarker = null;

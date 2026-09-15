@@ -11,9 +11,6 @@ object RideConfig {
      */
     const val FIREBASE_DATABASE_URL = "https://transportationlocationsharing-default-rtdb.europe-west1.firebasedatabase.app"
 
-    /** MapTiler API key for the streets-v4 style; empty falls back to the public MapLibre demo style. */
-    const val MAPTILER_KEY = ""
-
     const val MIN_MOVEMENT_METERS = 150.0
     const val WORK_CHECK_INTERVAL_MINUTES = 15L
 

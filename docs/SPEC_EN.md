@@ -123,7 +123,14 @@ operation.
   JavaScript bridge. (The native MapLibre Android SDK was tried first and
   dropped — it renders a blank/black screen on some Mali GPUs, e.g. common
   Xiaomi/Redmi devices, despite the style loading successfully.)
-- **Map tiles:** MapTiler (free tier), style `streets-v4`.
+- **Map tiles:** fully free, keyless sources — no signup or API key to
+  manage. Streets: [OpenFreeMap](https://openfreemap.org)'s hosted
+  `liberty` vector style, a MapLibre-native drop-in. Satellite: Esri's
+  public World Imagery raster tiles, wired in as a minimal inline
+  MapLibre style (a single raster source/layer), since OpenFreeMap is
+  vector-only. A style-switcher control on the map toggles between them
+  (`app/src/main/assets/map.html`); a MapTiler-based setup requiring an
+  API key was tried first and dropped in favor of these keyless sources.
 - **Background work:** a foreground `Service` for active broadcasting, plus
   a `WorkManager` periodic worker for the 15-minute automatic scheduling
   check.
