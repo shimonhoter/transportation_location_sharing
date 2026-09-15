@@ -21,23 +21,27 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.firebase.database.ValueEventListener
 import com.shimonhoter.ridelocationshare.MainActivity
 import com.shimonhoter.ridelocationshare.alerts.AlertZoneManager
 import com.shimonhoter.ridelocationshare.config.RideConfig
 import com.shimonhoter.ridelocationshare.data.Prefs
-import com.shimonhoter.ridelocationshare.net.LocationApi
+import com.shimonhoter.ridelocationshare.remote.FirebaseLocationRepository
 import com.shimonhoter.ridelocationshare.util.ActiveWindow
 import com.shimonhoter.ridelocationshare.util.AppLog
 import com.shimonhoter.ridelocationshare.util.GeoUtil
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Owns this device's participation in the current ride: decides (in
  * automatic mode) when to start broadcasting based on the movement + geofence
- * condition, POSTs this device's location while broadcasting, and separately
- * polls the shared ride location for the UI and for on-device alert-zone
- * checks (docs/SPEC_EN.md sections 3.1-3.6).
+ * condition, writes this device's location to Firebase while broadcasting,
+ * and separately listens for the shared ride location for the UI and for
+ * on-device alert-zone checks (docs/SPEC_EN.md sections 3.1-3.6).
  *
  * Every caller must go through [startAutomatic], [startManualBroadcast] or
  * [stop] — a single call path per action. An earlier version fired two
@@ -48,10 +52,11 @@ class BroadcastService : Service() {
 
     private lateinit var prefs: Prefs
     private lateinit var fusedClient: FusedLocationProviderClient
-    private val locationApi = LocationApi()
-    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val locationRepository = FirebaseLocationRepository()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var locationCallback: LocationCallback? = null
+    private var sharedLocationListener: ValueEventListener? = null
     private var isBroadcastingLocally = false
     private var geofenceAnchor: Location? = null
     private var rideEndDeadlineMillis: Long = 0L
@@ -62,6 +67,21 @@ class BroadcastService : Service() {
         fusedClient = LocationServices.getFusedLocationProviderClient(this)
         ensureServiceChannel()
         AlertZoneManager.ensureChannel(this)
+
+        // A single persistent listener for the shared ride location, independent
+        // of this device's own GPS fix cadence — covers alert-zone checks even
+        // when this device never itself qualifies to broadcast.
+        sharedLocationListener = locationRepository.observeLocation { shared ->
+            val wasActive = RideSessionState.currentLocation.value != null
+            RideSessionState.currentLocation.value = shared
+
+            if (shared != null) {
+                AlertZoneManager.check(applicationContext, prefs, shared.lat, shared.lon)
+            } else if (wasActive) {
+                AppLog.i(TAG, "Ride reported inactive, resetting alert flags")
+                AlertZoneManager.resetForNewRide(prefs)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -83,7 +103,8 @@ class BroadcastService : Service() {
 
     override fun onDestroy() {
         locationCallback?.let { fusedClient.removeLocationUpdates(it) }
-        executor.shutdown()
+        sharedLocationListener?.let { locationRepository.removeListener(it) }
+        serviceScope.cancel()
         super.onDestroy()
     }
 
@@ -121,7 +142,7 @@ class BroadcastService : Service() {
 
         if (isBroadcastingLocally) {
             val nickname = prefs.nickname.takeIf { prefs.showNickname && it.isNotBlank() }
-            executor.execute { locationApi.postLocation(location.latitude, location.longitude, nickname) }
+            serviceScope.launch { locationRepository.postLocation(location.latitude, location.longitude, nickname) }
 
             if (System.currentTimeMillis() >= rideEndDeadlineMillis) {
                 AppLog.i(TAG, "Safety timer expired, ending broadcast for this device")
@@ -130,8 +151,6 @@ class BroadcastService : Service() {
                 return
             }
         }
-
-        pollSharedLocationAndCheckAlerts()
 
         if (!isBroadcastingLocally && !ActiveWindow.isNowActive(prefs)) {
             AppLog.i(TAG, "Outside the active window with no ride detected, stopping monitor")
@@ -178,21 +197,6 @@ class BroadcastService : Service() {
         geofenceAnchor = null
         prefs.isBroadcasting = false
         RideSessionState.isThisDeviceBroadcasting.postValue(false)
-    }
-
-    private fun pollSharedLocationAndCheckAlerts() {
-        executor.execute {
-            val wasActive = RideSessionState.currentLocation.value != null
-            val shared = locationApi.fetchLocation()
-            RideSessionState.currentLocation.postValue(shared)
-
-            if (shared != null) {
-                AlertZoneManager.check(applicationContext, prefs, shared.lat, shared.lon)
-            } else if (wasActive) {
-                AppLog.i(TAG, "Ride reported inactive by server, resetting alert flags")
-                AlertZoneManager.resetForNewRide(prefs)
-            }
-        }
     }
 
     private fun ensureServiceChannel() {

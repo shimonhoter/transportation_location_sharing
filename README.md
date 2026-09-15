@@ -10,18 +10,20 @@
 ## מבנה הריפו
 
 - `app/` — אפליקציית האנדרואיד (Kotlin, WebView + MapLibre GL JS למפה).
-- `server/` — שרת המיקום (Python, stdlib בלבד, ללא תלויות חיצוניות).
 - `docs/` — מסמכי האפיון.
 - `.github/workflows/` — בניית CI (`assembleDebug` + העלאת APK כ-artifact).
 
-## הרצת שרת המיקום מקומית
+## שרת המיקום
 
-```bash
-RIDE_TOKEN=my-secret-token python3 server/server.py
-```
+אין שרת נפרד — מיקום ההסעה נשמר ונקרא ישירות מ-**Firebase Realtime
+Database** (node יחיד `rideLocation`, נדרס בכל עדכון, בלי היסטוריה),
+עם **Firebase Anonymous Authentication** במקום טוקן משותף. ראו
+[`docs/SPEC_EN.md`](docs/SPEC_EN.md#42-realtime-data-backend) לפרטים
+ולהגדרת ה-Realtime Database Rules.
 
-ברירת המחדל היא פורט `8000`. ראו [`docs/SPEC_EN.md`](docs/SPEC_EN.md#42-location-server)
-לפרטי ה-API.
+`app/google-services.json` קיים בריפו (הקובץ אינו סודי — הוא רק מזהה
+ציבורי של פרויקט Firebase, מוגן ע"י כללי האבטחה). כתובת ה-Realtime
+Database מוגדרת ב-`RideConfig.FIREBASE_DATABASE_URL`.
 
 ## בניית האפליקציה
 

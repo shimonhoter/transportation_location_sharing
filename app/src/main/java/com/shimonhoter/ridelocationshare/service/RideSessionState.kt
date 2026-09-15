@@ -1,7 +1,7 @@
 package com.shimonhoter.ridelocationshare.service
 
 import androidx.lifecycle.MutableLiveData
-import com.shimonhoter.ridelocationshare.net.RideLocation
+import com.shimonhoter.ridelocationshare.remote.RideLocation
 
 /**
  * In-memory, process-local bridge between BroadcastService and the UI.

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "419579299301",
+    "project_id": "transportationlocationsharing",
+    "storage_bucket": "transportationlocationsharing.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:419579299301:android:cc13697cefbcc5b2e85b0c",
+        "android_client_info": {
+          "package_name": "com.shimonhoter.ridelocationshare"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAaQTSw9GV3hX3rLAtMlJKE6sQBsBPew7A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

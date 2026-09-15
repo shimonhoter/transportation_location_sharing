@@ -4,20 +4,15 @@ import android.os.Bundle
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
-import com.shimonhoter.ridelocationshare.config.RideConfig
+import com.google.firebase.database.ValueEventListener
 import com.shimonhoter.ridelocationshare.data.Prefs
 import com.shimonhoter.ridelocationshare.databinding.ActivityMainBinding
-import com.shimonhoter.ridelocationshare.net.LocationApi
-import com.shimonhoter.ridelocationshare.net.RideLocation
+import com.shimonhoter.ridelocationshare.remote.FirebaseLocationRepository
+import com.shimonhoter.ridelocationshare.remote.RideLocation
 import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.service.RideSessionState
 import com.shimonhoter.ridelocationshare.ui.UiKit
 import com.shimonhoter.ridelocationshare.ui.loadRideMap
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -25,7 +20,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: Prefs
-    private val locationApi = LocationApi()
+    private val repository = FirebaseLocationRepository()
+    private var locationListener: ValueEventListener? = null
     private var mapReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,22 +59,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         RideSessionState.currentLocation.observe(this) { location -> renderStatus(location) }
+    }
 
+    override fun onStart() {
+        super.onStart()
         // Keep the map live even when BroadcastService isn't running (e.g. a
-        // waiting passenger who hasn't broadcast anything themselves yet).
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                while (true) {
-                    val fetched = withIoContext { locationApi.fetchLocation() }
-                    RideSessionState.currentLocation.value = fetched
-                    delay(RideConfig.LOCATION_UPDATE_INTERVAL_MS)
-                }
-            }
+        // waiting passenger who hasn't broadcast anything themselves yet) —
+        // Firebase pushes updates directly, no polling needed.
+        locationListener = repository.observeLocation { location ->
+            RideSessionState.currentLocation.value = location
         }
     }
 
-    private suspend fun <T> withIoContext(block: () -> T): T =
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { block() }
+    override fun onStop() {
+        super.onStop()
+        locationListener?.let { repository.removeListener(it) }
+        locationListener = null
+    }
 
     private fun renderStatus(location: RideLocation?) {
         if (location == null) {

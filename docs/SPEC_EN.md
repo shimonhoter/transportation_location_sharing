@@ -130,26 +130,39 @@ operation.
 - **Diagnostics:** an in-app log (`AppLog`) and crash log, since `adb`/
   `logcat` access from the development environment (Termux) is unreliable.
 
-### 4.2 Location server
-- **Language:** Python, **standard library only** (`http.server`), no
-  Flask or other framework.
-- **Endpoints:** `POST /location` (submit a location update), `GET
-  /location` (fetch the latest one).
-- **Auth:** a shared secret token sent in a request header — one token for
-  every passenger's device, since all passengers are "on the same side"
-  against the outside world; no per-user credentials.
-- **State:** exactly one "last known location" record, overwritten on every
-  `POST`, with a TTL after which `GET` reports no active broadcast. No
-  history is ever persisted.
-- **Hosting:** Render.com free tier. Cold start (up to ~50s) only affects
-  the first request of the morning; once continuous polling (every 5-10s)
-  begins, the server stays warm until the active window ends.
+### 4.2 Realtime data backend
+- **Backend:** Firebase Realtime Database. A previous iteration used a
+  custom stdlib-only Python HTTP server on Render.com; it was retired in
+  favor of Firebase to remove the need to run and pay attention to any
+  server at all, and to get live push updates for free instead of polling.
+- **Data model:** exactly one node, `rideLocation`, holding `{lat, lon,
+  nickname, updatedAt}` — overwritten on every write regardless of which
+  device sent it (last-write-wins, no history, no per-device sub-nodes).
+- **Auth:** Firebase Anonymous Authentication. Every device signs in
+  anonymously (no login UI, no per-user identity) before its first read or
+  write; this replaces the old shared-token model with the same trust
+  boundary — anyone running the app can read/write, nobody outside it can.
+- **Staleness:** there is no server-side TTL. A sample older than
+  `RideConfig.STALE_AFTER_SECONDS` (90s) is treated as "no active ride" by
+  the client reading it — the same effective behavior the old server's TTL
+  produced, just computed from the `updatedAt` timestamp instead.
+- **Delivery:** the Android app uses a live `ValueEventListener` (Realtime
+  Database push) instead of polling — both `MainActivity` (for the map) and
+  `BroadcastService` (for alert-zone checks) attach their own independent
+  listener, since a waiting passenger's map must stay live even when their
+  own device isn't broadcasting.
 
-### 4.3 Server address is not user-editable
-The server URL and token are fixed in code (`RideConfig.default()`) and are
-**not** exposed or editable from the in-app settings screen — every
-passenger's device must point at the same server regardless of local
-configuration.
+### 4.3 Firebase config is committed, database URL is fixed in code
+`app/google-services.json` is committed to the repo — it is not a secret,
+only a public per-project identifier; access is governed entirely by the
+Realtime Database security rules (`auth != null` on the `rideLocation`
+node) and Firebase Anonymous Auth, not by hiding this file. The database
+URL itself is set explicitly in `RideConfig.FIREBASE_DATABASE_URL` rather
+than relying on `google-services.json` to carry it, since a config file
+downloaded before the database is created won't include it. Same principle
+as the old fixed server URL/token: every passenger's device must point at
+the same backend regardless of local configuration, so this is not exposed
+in the settings screen.
 
 ### 4.4 CI/CD
 - GitHub Actions builds `assembleDebug` on every push and uploads the APK
@@ -163,7 +176,7 @@ configuration.
 
 | Data | Where it lives |
 |---|---|
-| Current ride location (last sample only) | Server (in memory, TTL-expired) |
+| Current ride location (last sample only) | Firebase Realtime Database (`rideLocation` node, client-side staleness cutoff) |
 | Route history | Nowhere — never persisted |
 | Personal origin/destination/alert zones | On-device only (local prefs) |
 | Which device is currently broadcasting | Not exposed to other users at all |
@@ -188,7 +201,7 @@ configuration.
 ## 7. Explicit Non-Goals
 
 - No server-side storage of route history.
-- No per-user server credentials — a single shared token is intentional.
-- No in-app editing of the server address/token.
+- No per-user credentials — anonymous auth for every device is intentional.
+- No in-app editing of the backend (Firebase database URL).
 - No reliance on exact route matching to decide when to stop broadcasting.
 - No broadcaster-switch notifications that could leak who got off where.
