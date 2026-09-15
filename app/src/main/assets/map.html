@@ -125,7 +125,7 @@
         autoCenterEnabled = !autoCenterEnabled;
         btn.style.opacity = autoCenterEnabled ? '1' : '0.4';
         if (autoCenterEnabled && rideMarker) {
-          map.easeTo({ center: rideMarker.getLngLat() });
+          map.easeTo({ center: rideMarker.getLngLat(), zoom: map.getZoom() });
         }
       };
       container.appendChild(btn);
@@ -149,8 +149,34 @@
     }
 
     var rideMarker = null;
+    var lastRideLatLon = null;
     var zoneSourceId = 'alert-zones';
     var lastZones = [];
+
+    // Bearing in degrees (0 = north) from point 1 to point 2, used to point
+    // the ride marker's arrow in the direction of travel (like Waze/Google
+    // Maps), computed client-side since posted samples carry no heading.
+    function bearingDegrees(lat1, lon1, lat2, lon2) {
+      var toRad = Math.PI / 180;
+      var y = Math.sin((lon2 - lon1) * toRad) * Math.cos(lat2 * toRad);
+      var x = Math.cos(lat1 * toRad) * Math.sin(lat2 * toRad) -
+        Math.sin(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.cos((lon2 - lon1) * toRad);
+      return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    // A triangular direction arrow (Waze/Google Maps style) instead of a
+    // plain dot, so the marker itself hints at which way the ride is
+    // heading once bearingDegrees() has two fixes to compare.
+    function createRideMarkerElement() {
+      var el = document.createElement('div');
+      el.innerHTML =
+        '<svg width="30" height="30" viewBox="0 0 30 30">' +
+        '<g class="ride-marker-arrow" style="transform-origin:15px 15px;">' +
+        '<path d="M15 2 L26 26 L15 20 L4 26 Z" fill="#2E7D6B" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>' +
+        '</g>' +
+        '</svg>';
+      return el;
+    }
 
     // 'load' fires once for the map's whole lifetime; 'style.load' fires
     // on the initial load AND every subsequent setStyle() call, since
@@ -192,19 +218,21 @@
 
     function updateRideLocation(lat, lon) {
       if (!rideMarker) {
-        var el = document.createElement('div');
-        el.style.width = '18px';
-        el.style.height = '18px';
-        el.style.borderRadius = '50%';
-        el.style.background = '#2E7D6B';
-        el.style.border = '3px solid #FFFFFF';
-        el.style.boxShadow = '0 0 6px rgba(0,0,0,0.4)';
-        rideMarker = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
+        rideMarker = new maplibregl.Marker({ element: createRideMarkerElement() }).setLngLat([lon, lat]).addTo(map);
       } else {
         rideMarker.setLngLat([lon, lat]);
       }
+      if (lastRideLatLon) {
+        var heading = bearingDegrees(lastRideLatLon[0], lastRideLatLon[1], lat, lon);
+        var arrow = rideMarker.getElement().querySelector('.ride-marker-arrow');
+        if (arrow) arrow.style.transform = 'rotate(' + heading + 'deg)';
+      }
+      lastRideLatLon = [lat, lon];
+
+      // Explicit zoom keeps whatever level the user is currently at — never
+      // pulled back to some default just because auto-center re-centers.
       if (autoCenterEnabled) {
-        map.easeTo({ center: [lon, lat], duration: 500 });
+        map.easeTo({ center: [lon, lat], zoom: map.getZoom(), duration: 500 });
       }
     }
 
@@ -213,6 +241,7 @@
         rideMarker.remove();
         rideMarker = null;
       }
+      lastRideLatLon = null;
     }
 
     function centerMap(lat, lon, zoom) {

@@ -13,14 +13,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.LocationServices
 import com.shimonhoter.ridelocationshare.data.GeoPoint
 import com.shimonhoter.ridelocationshare.data.Prefs
 import com.shimonhoter.ridelocationshare.data.TimeWindow
+import com.shimonhoter.ridelocationshare.history.RideHistoryStore
 import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.databinding.ActivitySettingsBinding
 import com.shimonhoter.ridelocationshare.databinding.DialogTimeWindowBinding
 import com.shimonhoter.ridelocationshare.databinding.ItemTimeWindowBinding
+import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.UUID
 
@@ -28,6 +31,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: Prefs
+    private lateinit var historyStore: RideHistoryStore
 
     private var pendingOrigin: GeoPoint? = null
     private var pendingDestination: GeoPoint? = null
@@ -53,6 +57,7 @@ class SettingsActivity : AppCompatActivity() {
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
         prefs = Prefs(this)
+        historyStore = RideHistoryStore(this)
 
         loadFromPrefs()
 
@@ -89,6 +94,12 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.btnSave.setOnClickListener { save() }
         binding.btnSettingsHelp.setOnClickListener { showHelp() }
+        binding.btnClearHistory.setOnClickListener {
+            lifecycleScope.launch {
+                historyStore.clearAll()
+                Toast.makeText(this@SettingsActivity, R.string.history_cleared_message, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun showHelp() {
@@ -117,6 +128,8 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.seekCorroborationRadius.progress = prefs.corroborationRadiusMeters
         updateCorroborationRadiusLabel(prefs.corroborationRadiusMeters)
+
+        binding.switchHistoryEnabled.isChecked = prefs.historyEnabled
 
         binding.etTripDuration.setText(prefs.tripDurationMinutes.toString())
         binding.etSafetyMargin.setText(prefs.safetyMarginMinutes.toString())
@@ -280,6 +293,7 @@ class SettingsActivity : AppCompatActivity() {
         prefs.geofenceRadiusMeters = binding.seekGeofenceRadius.progress
         prefs.locationUpdateIntervalSeconds = binding.seekLocationUpdateInterval.progress
         prefs.corroborationRadiusMeters = binding.seekCorroborationRadius.progress
+        prefs.historyEnabled = binding.switchHistoryEnabled.isChecked
         prefs.tripDurationMinutes = binding.etTripDuration.text?.toString()?.toIntOrNull() ?: prefs.tripDurationMinutes
         prefs.safetyMarginMinutes = binding.etSafetyMargin.text?.toString()?.toIntOrNull() ?: prefs.safetyMarginMinutes
         prefs.activeWindows = pendingTimeWindows.toList()

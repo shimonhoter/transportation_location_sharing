@@ -108,6 +108,11 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_CORROBORATION_RADIUS, RideConfig.DEFAULT_CORROBORATION_RADIUS_METERS)
         set(value) = sp.edit().putInt(KEY_CORROBORATION_RADIUS, value).apply()
 
+    /** Opt-in: keep a rolling on-device log of the shared ride location (RideConfig.HISTORY_RETENTION_DAYS) to estimate arrival time at the origin stop. Never sent to the server. */
+    var historyEnabled: Boolean
+        get() = sp.getBoolean(KEY_HISTORY_ENABLED, false)
+        set(value) = sp.edit().putBoolean(KEY_HISTORY_ENABLED, value).apply()
+
     /** Encodes the day this device was last marked "not riding" as year*1000+dayOfYear, so it self-clears on any other day without needing a scheduled reset. */
     private var skippedRideDayKey: Int
         get() = sp.getInt(KEY_SKIPPED_RIDE_DAY, 0)
@@ -159,6 +164,7 @@ class Prefs(context: Context) {
         private const val KEY_RIDE_START_TIME = "ride_start_time"
         private const val KEY_LOCATION_UPDATE_INTERVAL = "location_update_interval_seconds"
         private const val KEY_CORROBORATION_RADIUS = "corroboration_radius"
+        private const val KEY_HISTORY_ENABLED = "history_enabled"
         private const val KEY_SKIPPED_RIDE_DAY = "skipped_ride_day_key"
 
         // Sunday(1)-Thursday(5): the default Israeli work week.

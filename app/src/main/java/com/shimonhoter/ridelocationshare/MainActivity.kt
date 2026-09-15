@@ -1,25 +1,32 @@
 package com.shimonhoter.ridelocationshare
 
 import android.os.Bundle
+import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.google.firebase.database.ValueEventListener
 import com.shimonhoter.ridelocationshare.data.Prefs
 import com.shimonhoter.ridelocationshare.databinding.ActivityMainBinding
+import com.shimonhoter.ridelocationshare.history.RideEtaEstimator
+import com.shimonhoter.ridelocationshare.history.RideHistoryStore
 import com.shimonhoter.ridelocationshare.remote.FirebaseLocationRepository
 import com.shimonhoter.ridelocationshare.remote.RideLocation
 import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.service.RideSessionState
 import com.shimonhoter.ridelocationshare.ui.UiKit
 import com.shimonhoter.ridelocationshare.ui.loadRideMap
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Calendar
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: Prefs
+    private lateinit var historyStore: RideHistoryStore
     private val repository = FirebaseLocationRepository()
     private var locationListener: ValueEventListener? = null
     private var locationListenerRideCode: String? = null
@@ -30,6 +37,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         prefs = Prefs(this)
+        historyStore = RideHistoryStore(this)
 
         val center = prefs.origin
         binding.webViewMap.webViewClient = object : WebViewClient() {
@@ -65,7 +73,10 @@ class MainActivity : AppCompatActivity() {
             prefs.setSkipToday(isChecked)
         }
 
-        RideSessionState.currentLocation.observe(this) { location -> renderStatus(location) }
+        RideSessionState.currentLocation.observe(this) { location ->
+            renderStatus(location)
+            refreshEta()
+        }
 
         // Reflects whether THIS device is broadcasting, independent of the
         // shared ride-location status above — updates immediately on button
@@ -83,6 +94,9 @@ class MainActivity : AppCompatActivity() {
         locationListener = repository.observeLocation(rideCode, { prefs.corroborationRadiusMeters }) { location ->
             RideSessionState.currentLocation.value = location
         }
+        // Re-evaluate on every return to this screen too (e.g. after toggling
+        // Prefs.historyEnabled or changing the origin in Settings).
+        refreshEta()
     }
 
     override fun onStop() {
@@ -113,13 +127,50 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderSelfBroadcasting(isBroadcasting: Boolean) {
-        binding.tvSelfBroadcastBadge.visibility = if (isBroadcasting) android.view.View.VISIBLE else android.view.View.GONE
+        binding.tvSelfBroadcastBadge.visibility = if (isBroadcasting) View.VISIBLE else View.GONE
         binding.btnBroadcastNow.isEnabled = !isBroadcasting
     }
 
     private fun renderRideLocation(location: RideLocation) {
         if (!mapReady) return
         binding.webViewMap.evaluateJavascript("updateRideLocation(${location.lat}, ${location.lon})", null)
+    }
+
+    /**
+     * Recomputes the estimated arrival time at the user's stop (origin) from
+     * locally recorded history (docs/SPEC_EN.md 4.5), preferring a live
+     * distance/speed extrapolation over the historical median once the ride
+     * is actually moving. Opt-in via Prefs.historyEnabled; hidden entirely
+     * otherwise or when no origin is configured.
+     */
+    private fun refreshEta() {
+        val origin = prefs.origin
+        if (origin == null || !prefs.historyEnabled) {
+            binding.cardEta.visibility = View.GONE
+            return
+        }
+        val location = RideSessionState.currentLocation.value
+        val geofenceRadiusMeters = prefs.geofenceRadiusMeters
+        lifecycleScope.launch {
+            val history = historyStore.allSamples()
+            val eta = RideEtaEstimator.estimate(
+                history = history,
+                stop = origin,
+                arrivalRadiusMeters = geofenceRadiusMeters,
+                currentLat = location?.lat,
+                currentLon = location?.lon,
+                currentAvgSpeedKmh = location?.avgSpeedKmh
+            )
+            if (eta != null) {
+                binding.tvEta.text = getString(
+                    R.string.eta_format,
+                    "%02d:%02d".format(eta.get(Calendar.HOUR_OF_DAY), eta.get(Calendar.MINUTE))
+                )
+                binding.cardEta.visibility = View.VISIBLE
+            } else {
+                binding.cardEta.visibility = View.GONE
+            }
+        }
     }
 
     private fun showHelp() {

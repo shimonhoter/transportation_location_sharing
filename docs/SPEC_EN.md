@@ -90,6 +90,8 @@ configured days/windows, WorkManager checks are no-ops.
 - Geofence radius.
 - Expected trip duration / time-window margins.
 - Active weekdays.
+- Local ETA history toggle (`Prefs.historyEnabled`), off by default; see
+  4.5.
 
 Locations can be set two ways in every picker: **"Use current location"**
 or **drop a pin on the map** (map pans under a fixed center pin — the user
@@ -270,6 +272,31 @@ in the settings screen.
   per-build debug key silently breaks update installs (Android rejects an
   update signed with a different key, without a clear error).
 
+### 4.5 Local ETA estimation
+- **Opt-in, on-device only** (`Prefs.historyEnabled`, off by default,
+  Settings screen): while enabled, every ride-location update this device
+  observes (via `RideSessionState.currentLocation`, regardless of whether
+  `MainActivity` or `BroadcastService` is what received it — a single
+  `observeForever` in `RideApplication` covers both) is appended to
+  `RideHistoryStore`, a local SQLite table of `{timestamp, lat, lon,
+  speedKmh}`, pruned to the last `RideConfig.HISTORY_RETENTION_DAYS` (30)
+  on every write. This is unrelated to the "no server-side route history"
+  principle in section 5 — it never leaves the device.
+- **Estimate (`RideEtaEstimator`)**, recomputed on every location update
+  and shown on the map (section 6):
+  - **Live**: once the ride is visible and moving faster than
+    `RideConfig.MIN_SPEED_FOR_LIVE_ETA_KMH` (5 km/h), straight-line
+    distance from its current position to the configured origin (the
+    user's stop) divided by its current average speed.
+  - **Historical fallback**: before the ride is moving (or whenever a live
+    estimate isn't available), the median clock time, across recorded
+    days, of the first sample each day found within the configured
+    geofence radius of the origin — i.e. "what time does the ride
+    typically reach my stop."
+- Deliberately simple: a straight-line-distance/current-speed model, not a
+  route-aware prediction — appropriate given how small and short-lived the
+  local dataset is (opt-in, 30 days, one device's own observations).
+
 ## 5. Privacy Model
 
 | Data | Where it lives |
@@ -279,6 +306,7 @@ in the settings screen.
 | Personal origin/destination/alert zones | On-device only (local prefs) |
 | Which device is currently broadcasting | Not exposed to other users at all |
 | Nickname | Static per-device label, not an event/activity indicator |
+| Local ETA history (`Prefs.historyEnabled`) | On-device only (local SQLite, `RideHistoryStore`), opt-in, 30-day rolling window, never sent anywhere |
 
 ## 6. UI/UX Guidelines
 
@@ -298,7 +326,18 @@ in the settings screen.
 - The map auto-centers on the ride's location on every update, on by
   default at every app launch; a toggle control on the map (view mode
   only) lets the user turn this off to freely pan/zoom without being
-  pulled back, and back on again.
+  pulled back, and back on again. Auto-centering only ever changes the map
+  center, never the zoom — whatever zoom level the user is currently at is
+  passed straight back into the same `easeTo()` call, so it's never reset.
+- The ride's location is drawn as a triangular direction arrow (in the
+  style of Waze/Google Maps) rather than a plain dot, rotated to the
+  bearing between its last two fixes so it visually points the way the
+  ride is heading; with only one fix so far it points north by default.
+- When enabled (Prefs.historyEnabled, see 4.5), an estimated arrival time
+  at the user's stop is shown in a small card on the map's top-left
+  corner, directly below the native Settings/Alert-zones/Help buttons
+  (which sit at that same physical corner in this RTL app despite using
+  `layout_constraintEnd_toEndOf`).
 
 ## 7. Explicit Non-Goals
 
@@ -307,3 +346,5 @@ in the settings screen.
 - No in-app editing of the backend (Firebase database URL).
 - No reliance on exact route matching to decide when to stop broadcasting.
 - No broadcaster-switch notifications that could leak who got off where.
+- No route-aware ETA — the local arrival estimate (4.5) is a straight-line
+  distance/current-speed and historical-median model, not a routing engine.

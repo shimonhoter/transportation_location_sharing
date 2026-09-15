@@ -10,7 +10,7 @@ import com.shimonhoter.ridelocationshare.config.RideConfig
 import com.shimonhoter.ridelocationshare.util.GeoUtil
 import kotlinx.coroutines.tasks.await
 
-data class RideLocation(val lat: Double, val lon: Double, val nickname: String?, val ageSeconds: Double)
+data class RideLocation(val lat: Double, val lon: Double, val nickname: String?, val ageSeconds: Double, val avgSpeedKmh: Double)
 
 private data class DeviceSample(
     val lat: Double,
@@ -163,9 +163,10 @@ class FirebaseLocationRepository {
 
         val avgLat = chosen.sumOf { it.lat } / chosen.size
         val avgLon = chosen.sumOf { it.lon } / chosen.size
+        val avgSpeedKmh = chosen.sumOf { it.speedKmh } / chosen.size
         val freshestAgeSeconds = chosen.minOf { it.ageSeconds }
         val nickname = chosen.firstNotNullOfOrNull { it.nickname }
-        return RideLocation(avgLat, avgLon, nickname, freshestAgeSeconds)
+        return RideLocation(avgLat, avgLon, nickname, freshestAgeSeconds, avgSpeedKmh)
     }
 
     private fun parseSample(child: DataSnapshot, now: Long): DeviceSample? {

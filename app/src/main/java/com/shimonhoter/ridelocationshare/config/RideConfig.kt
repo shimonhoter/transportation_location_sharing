@@ -58,4 +58,10 @@ object RideConfig {
     const val DEFAULT_LOCATION_UPDATE_INTERVAL_SECONDS = 5
     const val MIN_LOCATION_UPDATE_INTERVAL_SECONDS = 3
     const val MAX_LOCATION_UPDATE_INTERVAL_SECONDS = 30
+
+    /** How long local ride-location history is kept on-device for the ETA estimate (Prefs.historyEnabled), opt-in via Settings. */
+    const val HISTORY_RETENTION_DAYS = 30
+
+    /** Below this average speed, a live position/speed pair isn't trusted to extrapolate an ETA — falls back to the historical estimate instead. */
+    const val MIN_SPEED_FOR_LIVE_ETA_KMH = 5.0
 }

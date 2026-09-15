@@ -295,6 +295,37 @@
                 android:orientation="vertical"
                 android:padding="@dimen/spacing_md">
 
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switchHistoryEnabled"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/history_enabled_label" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_xs"
+                    android:layout_marginBottom="@dimen/spacing_sm"
+                    android:text="@string/history_enabled_hint"
+                    android:textColor="@color/on_surface_muted"
+                    android:textSize="@dimen/text_size_caption" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnClearHistory"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/clear_history_button" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView style="@style/RideCard">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/spacing_md">
+
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
