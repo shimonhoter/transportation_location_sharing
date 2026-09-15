@@ -80,6 +80,15 @@ class SettingsActivity : AppCompatActivity() {
         })
 
         binding.btnSave.setOnClickListener { save() }
+        binding.btnSettingsHelp.setOnClickListener { showHelp() }
+    }
+
+    private fun showHelp() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.settings_help_title)
+            .setMessage(R.string.settings_help_body)
+            .setPositiveButton(R.string.help_close_button, null)
+            .show()
     }
 
     private fun loadFromPrefs() {
