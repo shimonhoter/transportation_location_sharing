@@ -100,6 +100,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun loadFromPrefs() {
+        binding.etRideCode.setText(prefs.rideCode)
         binding.etNickname.setText(prefs.nickname)
         binding.switchShowNickname.isChecked = prefs.showNickname
 
@@ -271,6 +272,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun save() {
+        prefs.rideCode = binding.etRideCode.text?.toString().orEmpty()
         prefs.nickname = binding.etNickname.text?.toString().orEmpty()
         prefs.showNickname = binding.switchShowNickname.isChecked
         prefs.origin = pendingOrigin

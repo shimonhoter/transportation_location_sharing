@@ -57,6 +57,7 @@ class BroadcastService : Service() {
 
     private var locationCallback: LocationCallback? = null
     private var sharedLocationListener: ValueEventListener? = null
+    private var sharedLocationListenerRideCode: String? = null
     private var isBroadcastingLocally = false
     private var geofenceAnchor: Location? = null
     private var lastMovingAtMillis: Long = 0L
@@ -68,11 +69,16 @@ class BroadcastService : Service() {
         fusedClient = LocationServices.getFusedLocationProviderClient(this)
         ensureServiceChannel()
         AlertZoneManager.ensureChannel(this)
+        attachSharedLocationListener()
+    }
 
-        // A single persistent listener for the shared ride location, independent
-        // of this device's own GPS fix cadence — covers alert-zone checks even
-        // when this device never itself qualifies to broadcast.
-        sharedLocationListener = locationRepository.observeLocation({ prefs.corroborationRadiusMeters }) { shared ->
+    /** A single persistent listener for the shared ride location, independent
+     * of this device's own GPS fix cadence — covers alert-zone checks even
+     * when this device never itself qualifies to broadcast. */
+    private fun attachSharedLocationListener() {
+        val rideCode = prefs.rideCode
+        sharedLocationListenerRideCode = rideCode
+        sharedLocationListener = locationRepository.observeLocation(rideCode, { prefs.corroborationRadiusMeters }) { shared ->
             val wasActive = RideSessionState.currentLocation.value != null
             RideSessionState.currentLocation.value = shared
 
@@ -83,6 +89,13 @@ class BroadcastService : Service() {
                 AlertZoneManager.resetForNewRide(prefs)
             }
         }
+    }
+
+    private fun detachSharedLocationListener() {
+        val rideCode = sharedLocationListenerRideCode ?: return
+        sharedLocationListener?.let { locationRepository.removeListener(rideCode, it) }
+        sharedLocationListener = null
+        sharedLocationListenerRideCode = null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -96,7 +109,7 @@ class BroadcastService : Service() {
             }
             ACTION_MANUAL_BROADCAST -> beginBroadcasting()
             ACTION_AUTO_START -> Unit // fall through to ensure monitoring below
-            ACTION_REFRESH_SETTINGS -> refreshLocationUpdates()
+            ACTION_REFRESH_SETTINGS -> applyRefreshedSettings()
         }
 
         ensureMonitoring()
@@ -106,7 +119,7 @@ class BroadcastService : Service() {
     override fun onDestroy() {
         isRunning = false
         locationCallback?.let { fusedClient.removeLocationUpdates(it) }
-        sharedLocationListener?.let { locationRepository.removeListener(it) }
+        detachSharedLocationListener()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -115,11 +128,18 @@ class BroadcastService : Service() {
 
     /** Tears down the current location callback and rebuilds it, so a changed
      * [Prefs.locationUpdateIntervalSeconds] takes effect immediately rather than
-     * only on the next broadcast session start. */
-    private fun refreshLocationUpdates() {
+     * only on the next broadcast session start; also re-subscribes the shared
+     * ride listener if [Prefs.rideCode] changed, since a Firebase listener
+     * can't be re-pointed at a different reference in place. */
+    private fun applyRefreshedSettings() {
         locationCallback?.let { fusedClient.removeLocationUpdates(it) }
         locationCallback = null
         ensureMonitoring()
+
+        if (prefs.rideCode != sharedLocationListenerRideCode) {
+            detachSharedLocationListener()
+            attachSharedLocationListener()
+        }
     }
 
     private fun ensureMonitoring() {
@@ -159,8 +179,9 @@ class BroadcastService : Service() {
             if (speedKmh > RideConfig.MOVING_SPEED_THRESHOLD_KMH) {
                 lastMovingAtMillis = System.currentTimeMillis()
             }
+            val rideCode = prefs.rideCode
             serviceScope.launch {
-                locationRepository.postLocation(location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis)
+                locationRepository.postLocation(rideCode, location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis)
             }
 
             if (System.currentTimeMillis() >= rideEndDeadlineMillis()) {
@@ -224,7 +245,8 @@ class BroadcastService : Service() {
         RideSessionState.isThisDeviceBroadcasting.postValue(false)
         // Best-effort: drop this device out of the aggregate immediately rather
         // than waiting up to STALE_AFTER_SECONDS for it to age out on its own.
-        serviceScope.launch { locationRepository.clearOwnLocation() }
+        val rideCode = prefs.rideCode
+        serviceScope.launch { locationRepository.clearOwnLocation(rideCode) }
     }
 
     private fun ensureServiceChannel() {

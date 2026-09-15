@@ -19,6 +19,11 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_NICKNAME, "") ?: ""
         set(value) = sp.edit().putString(KEY_NICKNAME, value).apply()
 
+    /** The bus line number (or any group-agreed code) that scopes this device's shared Firebase node, so unrelated groups running the app never mix into the same aggregate. Blank falls back to a shared "default" scope. */
+    var rideCode: String
+        get() = sp.getString(KEY_RIDE_CODE, "") ?: ""
+        set(value) = sp.edit().putString(KEY_RIDE_CODE, value).apply()
+
     var showNickname: Boolean
         get() = sp.getBoolean(KEY_SHOW_NICKNAME, false)
         set(value) = sp.edit().putBoolean(KEY_SHOW_NICKNAME, value).apply()
@@ -135,6 +140,7 @@ class Prefs(context: Context) {
 
     companion object {
         private const val KEY_NICKNAME = "nickname"
+        private const val KEY_RIDE_CODE = "ride_code"
         private const val KEY_SHOW_NICKNAME = "show_nickname"
         private const val KEY_ORIGIN_LAT = "origin_lat"
         private const val KEY_ORIGIN_LON = "origin_lon"

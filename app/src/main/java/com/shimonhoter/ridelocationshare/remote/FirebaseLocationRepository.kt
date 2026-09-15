@@ -3,6 +3,7 @@ package com.shimonhoter.ridelocationshare.remote
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import com.shimonhoter.ridelocationshare.config.RideConfig
@@ -23,8 +24,11 @@ private data class DeviceSample(
 /**
  * Firebase Realtime Database replacement for the old stdlib HTTP server.
  * Every broadcasting device writes to its own child under
- * "rideLocation/devices/<uid>" (keyed by its stable anonymous-auth UID)
- * rather than a single shared value — with several passengers broadcasting
+ * "rideLocation/rides/<rideCode>/devices/<uid>" (keyed by its stable
+ * anonymous-auth UID, scoped under a group-chosen ride code — see
+ * Prefs.rideCode — so unrelated groups running the app, e.g. a different
+ * bus line, never mix into the same aggregate) rather than a single shared
+ * value — with several passengers broadcasting
  * from different points (e.g. some still walking to the pickup spot while
  * others are already in the moving vehicle), last-write-wins on one flat
  * value would show whoever happened to post most recently, which is
@@ -52,9 +56,10 @@ private data class DeviceSample(
  */
 class FirebaseLocationRepository {
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
-    private val devicesRef by lazy {
-        FirebaseDatabase.getInstance(RideConfig.FIREBASE_DATABASE_URL).getReference("rideLocation/devices")
-    }
+    private val database by lazy { FirebaseDatabase.getInstance(RideConfig.FIREBASE_DATABASE_URL) }
+
+    private fun devicesRef(rideCode: String): DatabaseReference =
+        database.getReference("rideLocation/rides/${sanitizeRideCode(rideCode)}/devices")
 
     private suspend fun ensureSignedIn(): String {
         if (auth.currentUser == null) {
@@ -63,7 +68,7 @@ class FirebaseLocationRepository {
         return auth.currentUser!!.uid
     }
 
-    suspend fun postLocation(lat: Double, lon: Double, speedKmh: Double, nickname: String?, lastMovingAtMillis: Long): Boolean {
+    suspend fun postLocation(rideCode: String, lat: Double, lon: Double, speedKmh: Double, nickname: String?, lastMovingAtMillis: Long): Boolean {
         return try {
             val uid = ensureSignedIn()
             val data = mapOf(
@@ -74,7 +79,7 @@ class FirebaseLocationRepository {
                 "updatedAt" to System.currentTimeMillis(),
                 "lastMovingAt" to lastMovingAtMillis
             )
-            devicesRef.child(uid).setValue(data).await()
+            devicesRef(rideCode).child(uid).setValue(data).await()
             true
         } catch (_: Exception) {
             false
@@ -82,24 +87,28 @@ class FirebaseLocationRepository {
     }
 
     /** Removes this device's own entry so it's excluded from the aggregate immediately, rather than waiting for it to go stale. */
-    suspend fun clearOwnLocation() {
+    suspend fun clearOwnLocation(rideCode: String) {
         try {
             val uid = ensureSignedIn()
-            devicesRef.child(uid).removeValue().await()
+            devicesRef(rideCode).child(uid).removeValue().await()
         } catch (_: Exception) {
             // Best-effort: if this fails, the entry still expires on its own via the staleness check.
         }
     }
 
     /**
-     * Attaches a live listener over all devices; the callback fires
-     * immediately with the current aggregate and again on every subsequent
-     * change to any device's entry. [corroborationRadiusMeters] is invoked
-     * fresh on every firing (not just once at attach time) so a changed
-     * Settings value applies immediately, matching how every other setting
-     * in this app behaves.
+     * Attaches a live listener over all devices sharing [rideCode]; the
+     * callback fires immediately with the current aggregate and again on
+     * every subsequent change to any device's entry. [corroborationRadiusMeters]
+     * is invoked fresh on every firing (not just once at attach time) so a
+     * changed Settings value applies immediately, matching how every other
+     * setting in this app behaves. [rideCode] itself is fixed for the life
+     * of this listener — a change to Prefs.rideCode only takes effect once
+     * the caller detaches (via [removeListener], passing the same rideCode)
+     * and calls this again, since a Firebase listener can't be re-pointed
+     * at a different reference in place.
      */
-    fun observeLocation(corroborationRadiusMeters: () -> Int, onChange: (RideLocation?) -> Unit): ValueEventListener {
+    fun observeLocation(rideCode: String, corroborationRadiusMeters: () -> Int, onChange: (RideLocation?) -> Unit): ValueEventListener {
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 onChange(aggregate(snapshot, corroborationRadiusMeters()))
@@ -109,12 +118,13 @@ class FirebaseLocationRepository {
                 onChange(null)
             }
         }
-        devicesRef.addValueEventListener(listener)
+        devicesRef(rideCode).addValueEventListener(listener)
         return listener
     }
 
-    fun removeListener(listener: ValueEventListener) {
-        devicesRef.removeEventListener(listener)
+    /** [rideCode] must match what was passed to the [observeLocation] call that returned this listener. */
+    fun removeListener(rideCode: String, listener: ValueEventListener) {
+        devicesRef(rideCode).removeEventListener(listener)
     }
 
     private fun aggregate(snapshot: DataSnapshot, corroborationRadiusMeters: Int): RideLocation? {
@@ -168,5 +178,15 @@ class FirebaseLocationRepository {
         val nickname = child.child("nickname").getValue(String::class.java)
         val lastMovingAtMillis = child.child("lastMovingAt").getValue(Long::class.java) ?: 0L
         return DeviceSample(lat, lon, speedKmh, nickname, ageSeconds, lastMovingAtMillis)
+    }
+
+    companion object {
+        // Realtime Database keys may not contain these characters.
+        private val FORBIDDEN_KEY_CHARS = charArrayOf('.', '$', '#', '[', ']', '/')
+
+        private fun sanitizeRideCode(raw: String): String {
+            val cleaned = raw.trim().map { if (it in FORBIDDEN_KEY_CHARS) '_' else it }.joinToString("")
+            return cleaned.ifBlank { "default" }
+        }
     }
 }

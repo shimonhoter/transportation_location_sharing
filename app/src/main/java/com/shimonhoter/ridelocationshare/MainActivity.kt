@@ -22,6 +22,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private val repository = FirebaseLocationRepository()
     private var locationListener: ValueEventListener? = null
+    private var locationListenerRideCode: String? = null
     private var mapReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -77,15 +78,21 @@ class MainActivity : AppCompatActivity() {
         // Keep the map live even when BroadcastService isn't running (e.g. a
         // waiting passenger who hasn't broadcast anything themselves yet) —
         // Firebase pushes updates directly, no polling needed.
-        locationListener = repository.observeLocation({ prefs.corroborationRadiusMeters }) { location ->
+        val rideCode = prefs.rideCode
+        locationListenerRideCode = rideCode
+        locationListener = repository.observeLocation(rideCode, { prefs.corroborationRadiusMeters }) { location ->
             RideSessionState.currentLocation.value = location
         }
     }
 
     override fun onStop() {
         super.onStop()
-        locationListener?.let { repository.removeListener(it) }
+        val rideCode = locationListenerRideCode
+        if (rideCode != null) {
+            locationListener?.let { repository.removeListener(rideCode, it) }
+        }
         locationListener = null
+        locationListenerRideCode = null
     }
 
     private fun renderStatus(location: RideLocation?) {

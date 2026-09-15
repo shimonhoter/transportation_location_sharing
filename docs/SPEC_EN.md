@@ -81,6 +81,9 @@ from the Settings screen; at least one must always remain. Outside the
 configured days/windows, WorkManager checks are no-ops.
 
 ### 3.4 Per-user settings
+- Ride code (free text, e.g. the bus line number) — scopes which shared
+  Firebase node this device belongs to; see 4.2. Every rider on the same
+  ride enters the same code themselves, no admin or shared invite needed.
 - Nickname (free text) + a toggle for whether to show it at all (default:
   hidden/none).
 - Personal origin and destination locations.
@@ -154,11 +157,28 @@ operation.
   favor of Firebase to remove the need to run and pay attention to any
   server at all, and to get live push updates for free instead of polling.
 - **Data model:** each broadcasting device writes to its own child node,
-  `rideLocation/devices/<uid>` (keyed by its Firebase Anonymous Auth UID),
-  holding `{lat, lon, speedKmh, nickname, updatedAt}`. There is no single
-  shared value and no history — a device only ever holds its own latest
-  sample, overwritten on every write, and removes its own node outright
-  when it stops broadcasting.
+  `rideLocation/rides/<rideCode>/devices/<uid>` (keyed by its Firebase
+  Anonymous Auth UID, under a group-chosen ride code — see "Ride code"
+  below), holding `{lat, lon, speedKmh, nickname, updatedAt, lastMovingAt}`.
+  There is no single shared value and no history — a device only ever
+  holds its own latest sample, overwritten on every write, and removes its
+  own node outright when it stops broadcasting.
+- **Ride code (isolating unrelated groups):** every device using the app
+  shares the same Firebase project, so nothing stops a second, unrelated
+  group — a different bus line, say — from also running it. `Prefs.rideCode`
+  (Settings screen, free text, e.g. the bus line number) scopes which
+  `rides/<rideCode>` node a device reads and writes; everyone in the same
+  ride simply enters the same, already publicly-known code (a line number
+  needs no coordination or secrecy, unlike a generated invite code), so two
+  different lines naturally land in two different, non-overlapping nodes.
+  Blank falls back to a shared `"default"` node (pre-existing installs, or
+  a group that hasn't set one). `FirebaseLocationRepository` sanitizes the
+  code for the characters Realtime Database keys forbid (`. $ # [ ] /`,
+  replaced with `_`). Because a live Firebase listener can't be re-pointed
+  at a different reference in place, `BroadcastService` and `MainActivity`
+  detach and re-attach their shared-location listener whenever the code
+  they last attached with differs from the current `Prefs.rideCode` (the
+  same "apply immediately" pattern as every other Settings value).
 - **Auth:** Firebase Anonymous Authentication. Every device signs in
   anonymously (no login UI, no per-user identity) before its first read or
   write; this replaces the old shared-token model with the same trust
