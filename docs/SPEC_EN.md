@@ -64,13 +64,12 @@ per-device history).
   by itself.
 - **Manual stop:** "I got off" ends broadcasting for that device
   immediately.
-- **Manual opt-out:** "Not riding today" (main screen) suppresses the
-  automatic start condition entirely for the rest of the current day, for
-  a passenger who knows in advance they're taking their own vehicle instead
-  of the shared ride — the one case speed/movement alone cannot distinguish
-  from actually being in the shared ride (see 4.2's corroboration note).
-  Self-clears the next day; does not block the manual "Broadcast now"
-  override.
+- **Manual opt-out:** "Private car" (main screen) blocks both the
+  automatic start condition and the manual "Broadcast now" override, for
+  a passenger who isn't on the shared ride today (or just found out they
+  aren't) instead of taking it as usual — the one case speed/movement
+  alone cannot distinguish from actually being in the shared ride (see
+  4.2's corroboration note). See 3.6 for the full behavior.
 
 ### 3.3 Active days and time windows
 Each user configures which weekdays the automation is allowed to run on,
@@ -106,7 +105,7 @@ An "already alerted" flag per zone prevents repeat notifications within
 the same ride, and resets when the ride ends.
 
 ### 3.6 Manual overrides
-Three round buttons float directly on the map, bottom-center (no card
+Two round buttons float directly on the map, bottom-center (no card
 background — see 6):
 
 - **Broadcast toggle (center, larger)** — replaces what were originally two
@@ -122,18 +121,15 @@ background — see 6):
   well-defined service call (a known bug in early builds fired two
   separate/racing service-start calls, causing intermittent failures).
   Disabled (dimmed) while private car mode (below) is active.
-- **"Not riding today"** — a 🚫 icon button, orange when active. Suppresses
-  the automatic start condition for the rest of the day only; does not
-  touch a broadcast already in progress or the manual toggle. See 3.2.
 - **"Private car"** — a 🚗 icon button, orange when active, off by default.
   Tapping it while off immediately stops any broadcast already in progress
   from this device (if one is active) and then blocks **both** automatic
-  and manual broadcasting entirely — stronger than "not riding today",
-  which only blocks the automatic path. Auto-reverts to off after
+  and manual broadcasting entirely. Auto-reverts to off after
   `Prefs.privateCarDurationMinutes` (Settings screen, default 120 minutes)
-  — or immediately on a second tap. Meant for "I know right now, not just
-  in advance, that I'm not on the shared ride" (`BroadcastService` enforces
-  this at both `checkAutoStartCondition` and the `ACTION_MANUAL_BROADCAST`
+  — or immediately on a second tap. Covers both a passenger who knows in
+  advance they're taking their own vehicle instead of the shared ride, and
+  one who only realizes it in the moment (`BroadcastService` enforces this
+  at both `checkAutoStartCondition` and the `ACTION_MANUAL_BROADCAST`
   handler, so it holds even if the manual toggle were tapped some other
   way).
 
@@ -262,9 +258,9 @@ operation.
   second broadcaster is also active; it cannot, by itself, catch a
   passenger who takes their own car while otherwise being the only device
   broadcasting for that ride code. The reliable, primary fix for someone
-  who knows in advance they're taking their own car is the manual "not
-  riding today" override (section 3.2), which prevents their device from
-  auto-starting a broadcast in the first place.
+  who knows they're taking their own car is the manual "private car"
+  override (section 3.2), which blocks their device from broadcasting at
+  all, automatic or manual.
 - **Staleness:** there is no server-side TTL. Each device's sample older
   than `RideConfig.STALE_AFTER_SECONDS` (90s) is excluded from the
   aggregate by the client computing it — the same effective behavior the
@@ -357,9 +353,9 @@ in the settings screen.
   a transmitting antenna (on) and whose color follows `status_active`
   green when on / `status_idle` gray when off — no separate text badge
   duplicates it. It's disabled and dimmed whenever "private car" mode
-  blocks broadcasting. The "not riding today" and "private car" buttons
-  follow the same round-icon language: `brand_accent` (highlighted) when
-  active, `status_idle` (faded) when off.
+  blocks broadcasting. The "private car" button follows the same
+  round-icon language: `brand_accent` (highlighted) when active,
+  `status_idle` (faded) when off.
 - Full-screen permission onboarding flow shown on install (see 3.7).
 - The map auto-centers on the ride's location on every update, on by
   default at every app launch; a toggle control on the map (view mode

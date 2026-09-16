@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.shimonhoter.ridelocationshare.config.RideConfig
 import org.json.JSONArray
-import java.util.Calendar
 
 /**
  * All per-user settings and local ride state. Everything here stays on the
@@ -113,19 +112,6 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_HISTORY_ENABLED, false)
         set(value) = sp.edit().putBoolean(KEY_HISTORY_ENABLED, value).apply()
 
-    /** Encodes the day this device was last marked "not riding" as year*1000+dayOfYear, so it self-clears on any other day without needing a scheduled reset. */
-    private var skippedRideDayKey: Int
-        get() = sp.getInt(KEY_SKIPPED_RIDE_DAY, 0)
-        set(value) = sp.edit().putInt(KEY_SKIPPED_RIDE_DAY, value).apply()
-
-    fun isSkippedToday(now: Calendar = Calendar.getInstance()): Boolean = skippedRideDayKey == dayKey(now)
-
-    fun setSkipToday(skip: Boolean, now: Calendar = Calendar.getInstance()) {
-        skippedRideDayKey = if (skip) dayKey(now) else 0
-    }
-
-    private fun dayKey(cal: Calendar): Int = cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
-
     /** How long activating "private car" mode blocks broadcasting for, in minutes, before it auto-reverts. User-configurable via Settings. */
     var privateCarDurationMinutes: Int
         get() = sp.getInt(KEY_PRIVATE_CAR_DURATION, RideConfig.DEFAULT_PRIVATE_CAR_DURATION_MINUTES)
@@ -189,7 +175,6 @@ class Prefs(context: Context) {
         private const val KEY_LOCATION_UPDATE_INTERVAL = "location_update_interval_seconds"
         private const val KEY_CORROBORATION_RADIUS = "corroboration_radius"
         private const val KEY_HISTORY_ENABLED = "history_enabled"
-        private const val KEY_SKIPPED_RIDE_DAY = "skipped_ride_day_key"
         private const val KEY_PRIVATE_CAR_DURATION = "private_car_duration_minutes"
         private const val KEY_PRIVATE_CAR_UNTIL = "private_car_active_until"
 

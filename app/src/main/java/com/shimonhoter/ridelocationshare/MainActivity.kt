@@ -67,11 +67,6 @@ class MainActivity : AppCompatActivity() {
                 BroadcastService.startManualBroadcast(this)
             }
         }
-        binding.btnSkipToday.setOnClickListener {
-            val newValue = !prefs.isSkippedToday()
-            prefs.setSkipToday(newValue)
-            renderSkipTodayToggle(newValue)
-        }
         binding.btnPrivateCar.setOnClickListener { togglePrivateCarMode() }
         binding.btnSettings.setOnClickListener {
             startActivity(android.content.Intent(this, SettingsActivity::class.java))
@@ -81,7 +76,6 @@ class MainActivity : AppCompatActivity() {
         }
         binding.btnHelp.setOnClickListener { showHelp() }
 
-        renderSkipTodayToggle(prefs.isSkippedToday())
         renderPrivateCarToggle()
         schedulePrivateCarAutoOffRefresh()
 
@@ -161,12 +155,6 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         }
         lastRenderedBroadcasting = isBroadcasting
-    }
-
-    private fun renderSkipTodayToggle(isSkipped: Boolean) {
-        binding.btnSkipToday.backgroundTintList = ColorStateList.valueOf(
-            getColor(if (isSkipped) R.color.brand_accent else R.color.status_idle)
-        )
     }
 
     private fun togglePrivateCarMode() {

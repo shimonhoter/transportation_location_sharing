@@ -49,8 +49,8 @@ object RideConfig {
      * lone mover has nothing to corroborate against and is always trusted
      * directly (see FirebaseLocationRepository.aggregate) — this only ever
      * adds a safety net when a second broadcaster is also active; the
-     * reliable fix for someone who knows in advance they're taking their
-     * own car is Prefs.isSkippedToday() ("not riding today").
+     * reliable fix for someone who knows they're taking their own car is
+     * Prefs.activatePrivateCarMode() ("private car").
      * User-configurable via Settings (Prefs.corroborationRadiusMeters);
      * this is only the default/bounds.
      */

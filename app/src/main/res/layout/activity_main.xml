@@ -87,22 +87,6 @@
         app:layout_constraintEnd_toEndOf="parent">
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSkipToday"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:layout_marginEnd="@dimen/spacing_md"
-            android:insetLeft="0dp"
-            android:insetTop="0dp"
-            android:insetRight="0dp"
-            android:insetBottom="0dp"
-            android:padding="0dp"
-            android:text="@string/skip_today_icon"
-            android:textSize="22sp"
-            app:cornerRadius="28dp"
-            app:backgroundTint="@color/status_idle"
-            android:contentDescription="@string/skip_today_label" />
-
-        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBroadcastToggle"
             android:layout_width="72dp"
             android:layout_height="72dp"

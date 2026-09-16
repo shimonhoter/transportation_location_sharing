@@ -200,7 +200,7 @@ class BroadcastService : Service() {
 
     /** Start condition: inside the origin geofence AND has moved beyond the minimum threshold since. */
     private fun checkAutoStartCondition(location: Location) {
-        if (prefs.isSkippedToday() || prefs.isPrivateCarActive()) return
+        if (prefs.isPrivateCarActive()) return
         val origin = prefs.origin ?: return
         val distanceFromOrigin = GeoUtil.distanceMeters(location.latitude, location.longitude, origin.lat, origin.lon)
 
