@@ -85,8 +85,8 @@ class MainActivity : AppCompatActivity() {
         // tick — if automation is currently allowed to run at all, start
         // monitoring the moment the app is opened. This only arms the
         // geofence/movement check; BroadcastService still decides whether to
-        // actually start broadcasting (and still enforces private car mode).
-        if (ActiveWindow.isNowActive(prefs)) {
+        // actually start broadcasting.
+        if (!prefs.isPrivateCarActive() && ActiveWindow.isNowActive(prefs)) {
             BroadcastService.startAutomatic(this)
         }
 
@@ -169,8 +169,14 @@ class MainActivity : AppCompatActivity() {
         if (prefs.isPrivateCarActive()) {
             prefs.deactivatePrivateCarMode()
             Toast.makeText(this, R.string.private_car_deactivated_message, Toast.LENGTH_SHORT).show()
+            if (ActiveWindow.isNowActive(prefs)) {
+                BroadcastService.startAutomatic(this)
+            }
         } else {
-            if (RideSessionState.isThisDeviceBroadcasting.value == true) {
+            // Stop the service outright rather than leaving it polling GPS in
+            // the background just to have checkAutoStartCondition() bail on
+            // isPrivateCarActive() every fix — "stay home" means genuinely off.
+            if (BroadcastService.isRunning) {
                 BroadcastService.stop(this)
             }
             prefs.activatePrivateCarMode()

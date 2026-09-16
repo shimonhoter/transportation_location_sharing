@@ -23,7 +23,9 @@ class RideCheckWorker(context: Context, params: WorkerParameters) : CoroutineWor
 
     override suspend fun doWork(): Result {
         val prefs = Prefs(applicationContext)
-        if (ActiveWindow.isNowActive(prefs)) {
+        if (prefs.isPrivateCarActive()) {
+            AppLog.d(TAG, "Stay-home mode active, no-op")
+        } else if (ActiveWindow.isNowActive(prefs)) {
             AppLog.i(TAG, "Within active window, starting automatic monitoring")
             BroadcastService.startAutomatic(applicationContext)
         } else {

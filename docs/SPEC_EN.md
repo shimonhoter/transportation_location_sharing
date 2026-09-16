@@ -138,17 +138,20 @@ background — see 6):
   regardless of why it isn't. A short toast ("Broadcasting started"/"Not
   broadcasting location") fires on every actual transition.
 - **"Stay home"** — a 🏠 icon button, orange when active, off by default.
-  Tapping it while off immediately stops any broadcast already in progress
-  from this device (if one is active) and then blocks **both** automatic
-  and manual broadcasting entirely. Auto-reverts to off at the end of
-  today's active time window (3.3) — or immediately on a second tap; falls
-  back to `RideConfig.DEFAULT_PRIVATE_CAR_DURATION_MINUTES` (120 minutes)
-  if today isn't an active day or the window has already ended when
-  activated. Covers both a passenger who knows in advance they're taking
-  their own vehicle instead of the shared ride, and one who only realizes
-  it in the moment (`BroadcastService` enforces this at
-  `checkAutoStartCondition`, so it holds regardless of what else might try
-  to start a broadcast).
+  Tapping it while off stops `BroadcastService` outright — not just any
+  broadcast already in progress, but idle background GPS monitoring too —
+  so "stay home" genuinely turns the app off in the background instead of
+  just blocking the outcome of a check that keeps running. The periodic
+  `RideCheckWorker` (3.8) also skips restarting monitoring while the mode
+  is active. Tapping again to deactivate immediately restarts automatic
+  monitoring if still inside today's active window, rather than waiting for
+  the next periodic check. Auto-reverts to off at the end of today's active
+  time window (3.3); falls back to
+  `RideConfig.DEFAULT_PRIVATE_CAR_DURATION_MINUTES` (120 minutes) if today
+  isn't an active day or the window has already ended when activated.
+  Covers both a passenger who knows in advance they're taking their own
+  vehicle instead of the shared ride, and one who only realizes it in the
+  moment.
 
 ### 3.7 Permissions onboarding
 On first run, the app walks the user through a full permission sequence in
