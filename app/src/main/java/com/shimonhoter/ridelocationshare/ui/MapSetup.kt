@@ -5,9 +5,9 @@ import android.webkit.WebView
 
 /**
  * Loads the shared assets/map.html (WebView + MapLibre GL JS) consistently
- * across MainActivity, MapPickerActivity and AlertZonesActivity — the
- * native MapLibre Android SDK was dropped for a blank-screen bug on some
- * Mali GPUs (docs/SPEC_EN.md 4.1).
+ * across MainActivity and MapPickerActivity — the native MapLibre Android
+ * SDK was dropped for a blank-screen bug on some Mali GPUs
+ * (docs/SPEC_EN.md 4.1).
  */
 fun WebView.loadRideMap(
     bridge: MapBridge?,

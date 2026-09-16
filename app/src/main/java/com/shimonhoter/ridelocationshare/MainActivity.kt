@@ -9,6 +9,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.database.ValueEventListener
+import com.shimonhoter.ridelocationshare.config.RideConfig
+import com.shimonhoter.ridelocationshare.data.AlertZone
 import com.shimonhoter.ridelocationshare.data.Prefs
 import com.shimonhoter.ridelocationshare.databinding.ActivityMainBinding
 import com.shimonhoter.ridelocationshare.history.RideEtaEstimator
@@ -17,6 +19,7 @@ import com.shimonhoter.ridelocationshare.remote.FirebaseLocationRepository
 import com.shimonhoter.ridelocationshare.remote.RideLocation
 import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.service.RideSessionState
+import com.shimonhoter.ridelocationshare.ui.MapBridge
 import com.shimonhoter.ridelocationshare.ui.UiKit
 import com.shimonhoter.ridelocationshare.ui.loadRideMap
 import com.shimonhoter.ridelocationshare.util.ActiveWindow
@@ -26,6 +29,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
 
@@ -54,8 +58,17 @@ class MainActivity : AppCompatActivity() {
                 RideSessionState.currentLocation.value?.let { renderRideLocation(it) }
             }
         }
+        // Alert zones (docs/SPEC_EN.md 3.5) are now added and edited directly
+        // on this map via its own "edit zones" control (see map.html), rather
+        // than a separate screen — these callbacks are how it reports back.
+        val mapBridge = MapBridge(
+            onZoneAdded = { lat, lon -> runOnUiThread { addAlertZone(lat, lon) } },
+            onZoneMoved = { id, lat, lon -> runOnUiThread { moveAlertZone(id, lat, lon) } },
+            onZoneResized = { id, radiusMeters -> runOnUiThread { resizeAlertZone(id, radiusMeters) } },
+            onZoneDeleted = { id -> runOnUiThread { deleteAlertZone(id) } }
+        )
         binding.webViewMap.loadRideMap(
-            bridge = null,
+            bridge = mapBridge,
             mode = "view",
             centerLat = center?.lat ?: 32.0853,
             centerLon = center?.lon ?: 34.7818
@@ -64,9 +77,6 @@ class MainActivity : AppCompatActivity() {
         binding.btnPrivateCar.setOnClickListener { togglePrivateCarMode() }
         binding.btnSettings.setOnClickListener {
             startActivity(android.content.Intent(this, SettingsActivity::class.java))
-        }
-        binding.btnAlertZones.setOnClickListener {
-            startActivity(android.content.Intent(this, AlertZonesActivity::class.java))
         }
         binding.btnHelp.setOnClickListener { showHelp() }
 
@@ -255,5 +265,33 @@ class MainActivity : AppCompatActivity() {
             )
         }
         binding.webViewMap.evaluateJavascript("setAlertZones('${zonesArray.toString().replace("'", "\\'")}')", null)
+    }
+
+    /** Tapped an empty spot on the map while the 📍 edit-zones control is active — places a new zone there, unnamed, at the default radius (drag its resize handle to adjust). */
+    private fun addAlertZone(lat: Double, lon: Double) {
+        prefs.alertZones = prefs.alertZones + AlertZone(
+            id = UUID.randomUUID().toString(),
+            name = "",
+            lat = lat,
+            lon = lon,
+            radiusMeters = RideConfig.DEFAULT_ALERT_ZONE_RADIUS_METERS
+        )
+        pushAlertZonesToMap()
+    }
+
+    private fun moveAlertZone(id: String, lat: Double, lon: Double) {
+        prefs.alertZones = prefs.alertZones.map { if (it.id == id) it.copy(lat = lat, lon = lon) else it }
+        pushAlertZonesToMap()
+    }
+
+    private fun resizeAlertZone(id: String, radiusMeters: Double) {
+        prefs.alertZones = prefs.alertZones.map { if (it.id == id) it.copy(radiusMeters = radiusMeters) else it }
+        pushAlertZonesToMap()
+    }
+
+    private fun deleteAlertZone(id: String) {
+        prefs.alertZones = prefs.alertZones.filterNot { it.id == id }
+        prefs.alertedZoneIds = prefs.alertedZoneIds - id
+        pushAlertZonesToMap()
     }
 }

@@ -43,12 +43,6 @@
             android:theme="@style/Theme.RideLocationShare" />
 
         <activity
-            android:name=".AlertZonesActivity"
-            android:exported="false"
-            android:label="@string/alert_zones_title"
-            android:theme="@style/Theme.RideLocationShare" />
-
-        <activity
             android:name=".MapPickerActivity"
             android:exported="false"
             android:theme="@style/Theme.RideLocationShare" />

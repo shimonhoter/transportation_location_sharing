@@ -98,18 +98,30 @@ or **drop a pin on the map** (map pans under a fixed center pin — the user
 moves the map, not the pin).
 
 ### 3.5 Personal alert zones
-A user can mark arbitrary zones on the map. When the ride's shared location
-enters such a zone, the device (and only that device) is alerted: a
-full-screen popup (`AlertZoneAlarmActivity`) is brought to the foreground
-via the notification's full-screen intent — even over the lock screen — and
-an alarm sound loops until the user dismisses it, capped at
-`Prefs.alertSoundDurationSeconds` (Settings screen, default 30s) as a
-safety net in case it's never dismissed. If `Prefs.historyEnabled` (4.5) is
-on and an origin is configured, the popup and notification also show the
-estimated arrival time at the user's stop, from the same local-history
-estimate used on the main screen. This check runs **only on-device**, using
-the zone coordinates stored locally — the server never sees zone
-definitions. An "already alerted" flag per zone prevents repeat
+A user can mark arbitrary circular zones directly on the main map — there is
+no separate screen for this. A 📍 control in the map's control bar (top
+corner, alongside the style switcher, auto-center and rotation toggles)
+enters "edit zones" mode: auto-centering is forced off for the duration, and
+tapping an empty spot on the map places a new zone there (default radius
+`RideConfig.DEFAULT_ALERT_ZONE_RADIUS_METERS`, 150m). While in this mode,
+every zone shows three draggable handles — a center handle (✛) to move it,
+an edge handle (↔) to resize it, and a delete handle (🗑️) — with every
+change (add/move/resize/delete) applied to `Prefs.alertZones` immediately
+via the `MapBridge` JS-to-Kotlin callbacks (`onZoneAdded`/`onZoneMoved`/
+`onZoneResized`/`onZoneDeleted`). Double-tapping the map, or toggling the
+📍 control off, exits edit mode and resumes auto-centering.
+
+When the ride's shared location enters a zone, the device (and only that
+device) is alerted: a full-screen popup (`AlertZoneAlarmActivity`) is
+brought to the foreground via the notification's full-screen intent — even
+over the lock screen — and an alarm sound loops until the user dismisses
+it, capped at `Prefs.alertSoundDurationSeconds` (Settings screen, default
+30s) as a safety net in case it's never dismissed. If `Prefs.historyEnabled`
+(4.5) is on and an origin is configured, the popup and notification also
+show the estimated arrival time at the user's stop, from the same
+local-history estimate used on the main screen. This check runs **only
+on-device**, using the zone coordinates stored locally — the server never
+sees zone definitions. An "already alerted" flag per zone prevents repeat
 notifications within the same ride, and resets when the ride ends.
 
 ### 3.6 Broadcast indicator and manual opt-out
@@ -393,8 +405,8 @@ in the settings screen.
   auto-centering is also on.
 - When enabled (Prefs.historyEnabled, see 4.5), an estimated arrival time
   at the user's stop is shown in a small card on the map's top-left
-  corner, directly below the native Settings/Alert-zones/Help buttons
-  (which sit at that same physical corner in this RTL app despite using
+  corner, directly below the native Settings/Help buttons (which sit at
+  that same physical corner in this RTL app despite using
   `layout_constraintEnd_toEndOf`).
 
 ## 7. Explicit Non-Goals

@@ -92,4 +92,7 @@ object RideConfig {
     const val DEFAULT_ALERT_SOUND_DURATION_SECONDS = 30
     const val MIN_ALERT_SOUND_DURATION_SECONDS = 5
     const val MAX_ALERT_SOUND_DURATION_SECONDS = 300
+
+    /** Radius a new alert zone gets when placed by tapping the map (docs/SPEC_EN.md 3.5) — the drag-to-resize handle is the intended way to adjust it afterward. */
+    const val DEFAULT_ALERT_ZONE_RADIUS_METERS = 150.0
 }
