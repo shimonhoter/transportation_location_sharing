@@ -106,13 +106,21 @@ An "already alerted" flag per zone prevents repeat notifications within
 the same ride, and resets when the ride ends.
 
 ### 3.6 Manual overrides
-- **"Broadcast now"** — force-starts broadcasting from this device
-  immediately, bypassing the movement/geofence start condition.
-- **"I got off"** — force-stops broadcasting from this device immediately.
+A single round toggle button on the main screen, below the map, replaces
+what were originally two separate buttons:
+- **Tapped while off (gray)** — force-starts broadcasting from this device
+  immediately, bypassing the movement/geofence start condition ("Broadcast
+  now").
+- **Tapped while on (green)** — force-stops broadcasting from this device
+  immediately ("I got off").
 
-Both must go through a single, well-defined service call (a known bug in
-early builds fired two separate/racing service-start calls, causing
-intermittent failures).
+The button's color always reflects `RideSessionState.isThisDeviceBroadcasting`
+regardless of what changed it — a tap, or BroadcastService starting/stopping
+broadcasting automatically per the geofence/movement or safety-timer
+conditions — and a short toast ("Broadcasting started"/"Broadcasting
+stopped") fires on every actual transition. Both directions go through a
+single, well-defined service call (a known bug in early builds fired two
+separate/racing service-start calls, causing intermittent failures).
 
 ### 3.7 Permissions onboarding
 On first run, the app walks the user through a full permission sequence in
@@ -329,6 +337,9 @@ in the settings screen.
 - A single, clear status card communicates state ("no data yet" / "ride
   ended" / "broadcasting") — these must never be duplicated as separate
   overlapping messages.
+- This device's own broadcasting state has exactly one indicator: the
+  round manual toggle button's color (`status_active` green when on,
+  `status_idle` gray when off) — no separate text badge duplicates it.
 - Full-screen permission onboarding flow shown on install (see 3.7).
 - The map auto-centers on the ride's location on every update, on by
   default at every app launch; a toggle control on the map (view mode

@@ -1,9 +1,11 @@
 package com.shimonhoter.ridelocationshare
 
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.database.ValueEventListener
@@ -31,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private var locationListener: ValueEventListener? = null
     private var locationListenerRideCode: String? = null
     private var mapReady = false
+    private var lastRenderedBroadcasting: Boolean? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,11 +57,12 @@ class MainActivity : AppCompatActivity() {
             centerLon = center?.lon ?: 34.7818
         )
 
-        binding.btnBroadcastNow.setOnClickListener {
-            BroadcastService.startManualBroadcast(this)
-        }
-        binding.btnGotOff.setOnClickListener {
-            BroadcastService.stop(this)
+        binding.btnBroadcastToggle.setOnClickListener {
+            if (RideSessionState.isThisDeviceBroadcasting.value == true) {
+                BroadcastService.stop(this)
+            } else {
+                BroadcastService.startManualBroadcast(this)
+            }
         }
         binding.btnSettings.setOnClickListener {
             startActivity(android.content.Intent(this, SettingsActivity::class.java))
@@ -69,8 +73,10 @@ class MainActivity : AppCompatActivity() {
         binding.btnHelp.setOnClickListener { showHelp() }
 
         binding.switchSkipToday.isChecked = prefs.isSkippedToday()
+        updateSkipTodayEmphasis(binding.switchSkipToday.isChecked)
         binding.switchSkipToday.setOnCheckedChangeListener { _, isChecked ->
             prefs.setSkipToday(isChecked)
+            updateSkipTodayEmphasis(isChecked)
         }
 
         RideSessionState.currentLocation.observe(this) { location ->
@@ -79,9 +85,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Reflects whether THIS device is broadcasting, independent of the
-        // shared ride-location status above — updates immediately on button
-        // press, without waiting for a Firebase round-trip.
-        RideSessionState.isThisDeviceBroadcasting.observe(this) { isBroadcasting -> renderSelfBroadcasting(isBroadcasting) }
+        // shared ride-location status above — updates immediately whether
+        // triggered by the toggle button or automatically by BroadcastService
+        // (geofence/movement start, safety-timer stop), without waiting for a
+        // Firebase round-trip.
+        RideSessionState.isThisDeviceBroadcasting.observe(this) { isBroadcasting -> renderBroadcastToggle(isBroadcasting) }
     }
 
     override fun onStart() {
@@ -126,9 +134,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderSelfBroadcasting(isBroadcasting: Boolean) {
-        binding.tvSelfBroadcastBadge.visibility = if (isBroadcasting) View.VISIBLE else View.GONE
-        binding.btnBroadcastNow.isEnabled = !isBroadcasting
+    /**
+     * The round toggle button is the single source of truth for "is THIS
+     * device broadcasting" — its color always matches
+     * RideSessionState.isThisDeviceBroadcasting, whether that changed because
+     * the user tapped it or because BroadcastService started/stopped
+     * broadcasting automatically. A toast fires only on an actual change
+     * (never on the initial value delivered when the observer attaches).
+     */
+    private fun renderBroadcastToggle(isBroadcasting: Boolean) {
+        binding.btnBroadcastToggle.backgroundTintList =
+            ColorStateList.valueOf(UiKit.statusColor(this, isBroadcasting))
+
+        if (lastRenderedBroadcasting != null && lastRenderedBroadcasting != isBroadcasting) {
+            val message = if (isBroadcasting) R.string.broadcast_started_message else R.string.broadcast_stopped_message
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        }
+        lastRenderedBroadcasting = isBroadcasting
+    }
+
+    private fun updateSkipTodayEmphasis(isChecked: Boolean) {
+        binding.switchSkipToday.alpha = if (isChecked) 1f else 0.5f
     }
 
     private fun renderRideLocation(location: RideLocation) {

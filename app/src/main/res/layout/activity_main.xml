@@ -111,17 +111,6 @@
                 android:textColor="@color/on_surface_muted"
                 android:textSize="@dimen/text_size_caption" />
 
-            <TextView
-                android:id="@+id/tvSelfBroadcastBadge"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="@dimen/spacing_sm"
-                android:text="@string/self_broadcasting_badge"
-                android:textColor="@color/status_active"
-                android:textSize="@dimen/text_size_caption"
-                android:textStyle="bold"
-                android:visibility="gone" />
-
             <com.google.android.material.switchmaterial.SwitchMaterial
                 android:id="@+id/switchSkipToday"
                 android:layout_width="match_parent"
@@ -130,27 +119,21 @@
                 android:text="@string/skip_today_label"
                 android:textSize="@dimen/text_size_caption" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnBroadcastNow"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="@dimen/spacing_sm"
-                    android:text="@string/broadcast_now_button" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnGotOff"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/got_off_button" />
-            </LinearLayout>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnBroadcastToggle"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:layout_gravity="center_horizontal"
+                android:insetLeft="0dp"
+                android:insetTop="0dp"
+                android:insetRight="0dp"
+                android:insetBottom="0dp"
+                android:padding="0dp"
+                android:text="@string/broadcast_toggle_icon"
+                android:textSize="28sp"
+                app:cornerRadius="36dp"
+                app:backgroundTint="@color/status_idle"
+                android:contentDescription="@string/broadcast_toggle_content_description" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
