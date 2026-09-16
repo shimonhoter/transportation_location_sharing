@@ -193,15 +193,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderRideLocation(location: RideLocation) {
         if (!mapReady) return
-        // headingDegrees is the circular mean of the contributing devices'
-        // own GPS bearings (see FirebaseLocationRepository.aggregate) —
-        // passed straight through rather than derived on the map side from
-        // consecutive aggregate fixes, which broke down once more than one
-        // device was broadcasting (the averaged point can shift sideways as
-        // the contributing set changes, unrelated to the ride's actual
-        // heading).
-        val heading = location.headingDegrees?.toString() ?: "null"
-        binding.webViewMap.evaluateJavascript("updateRideLocation(${location.lat}, ${location.lon}, $heading)", null)
+        binding.webViewMap.evaluateJavascript("updateRideLocation(${location.lat}, ${location.lon})", null)
     }
 
     /**

@@ -42,8 +42,8 @@ location" action required in normal operation).
   broadcasting: X" — switching broadcasters must never indirectly reveal
   where someone got off. Default is no nickname at all.
 - **No manual broadcast control.** Starting and stopping broadcasting is
-  entirely automatic (geofence/movement condition, safety timer, "private
-  car" opt-out); the main screen's round button is a status indicator only
+  entirely automatic (geofence/movement condition, safety timer, "stay
+  home" opt-out); the main screen's round button is a status indicator only
   (see 3.6), not a way to force a start or stop.
 
 ## 3. Features
@@ -64,7 +64,7 @@ per-device history).
 - **Soft secondary signal:** route-deviation detection may flag that the
   ride seems off the usual path, but never autonomously stops broadcasting
   by itself.
-- **Manual opt-out:** "Private car" (main screen) blocks the automatic
+- **Manual opt-out:** "Stay home" (main screen) blocks the automatic
   start condition entirely, for a passenger who isn't on the shared ride
   today (or just found out they aren't) instead of taking it as usual —
   the one case speed/movement alone cannot distinguish from actually being
@@ -119,13 +119,13 @@ background — see 6):
 - **Broadcast indicator (center, larger)** — a status indicator only, not a
   control (not clickable, no tap handler). Always shows an antenna icon,
   green while `RideSessionState.isThisDeviceBroadcasting` is true. Whenever
-  it's false — for any reason: private car mode, the movement/geofence
+  it's false — for any reason: stay-home mode, the movement/geofence
   start condition not yet met, or an automatic stop (safety timer, outside
   the active window) — a red "blocked" badge is overlaid on the antenna, so
   a single glance always answers "is my location going out right now",
   regardless of why it isn't. A short toast ("Broadcasting started"/"Not
   broadcasting location") fires on every actual transition.
-- **"Private car"** — a 🏠 icon button, orange when active, off by default.
+- **"Stay home"** — a 🏠 icon button, orange when active, off by default.
   Tapping it while off immediately stops any broadcast already in progress
   from this device (if one is active) and then blocks **both** automatic
   and manual broadcasting entirely. Auto-reverts to off at the end of
@@ -185,11 +185,10 @@ operation.
 - **Data model:** each broadcasting device writes to its own child node,
   `rideLocation/rides/<rideCode>/devices/<uid>` (keyed by its Firebase
   Anonymous Auth UID, under a group-chosen ride code — see "Ride code"
-  below), holding `{lat, lon, speedKmh, nickname, updatedAt, lastMovingAt,
-  heading}` (`heading` omitted when the device's GPS hasn't derived a
-  bearing yet). There is no single shared value and no history — a device
-  only ever holds its own latest sample, overwritten on every write, and
-  removes its own node outright when it stops broadcasting.
+  below), holding `{lat, lon, speedKmh, nickname, updatedAt, lastMovingAt}`.
+  There is no single shared value and no history — a device only ever
+  holds its own latest sample, overwritten on every write, and removes its
+  own node outright when it stops broadcasting.
 - **Ride code (isolating unrelated groups):** every device using the app
   shares the same Firebase project, so nothing stops a second, unrelated
   group — a different bus line, say — from also running it. `Prefs.rideCode`
@@ -242,18 +241,20 @@ operation.
   safety timer or geofence/time-window condition (docs section 3.2) — the
   grace-window exclusion only affects whether that device's samples are
   counted in the aggregate, not whether it keeps transmitting.
-- **Direction of travel:** the map's direction arrow is driven by
-  `RideLocation.headingDegrees`, the circular mean of the `chosen` devices'
-  own GPS-reported bearings (`Location.bearing`, posted as `heading` when
-  available) — not a bearing derived from consecutive aggregate fixes. The
-  aggregate's lat/lon is an average across whichever devices currently
-  qualify, and that set can change between updates; with two or more
-  broadcasters, the averaged point can shift sideways in a way unrelated to
-  the ride's actual heading, which made a from-fixes calculation unreliable
-  once more than one device was moving (a bug: the arrow pointed correctly
-  with a single broadcaster but became erratic as soon as a second one
-  joined). `null` when no contributing device has reported a bearing yet;
-  the map falls back to its own from-fixes calculation only in that case.
+- **Direction of travel:** the map's direction arrow and rotation follow the
+  reported (aggregated) location's own progression between updates —
+  `map.html`'s `bearingDegrees()` computed from consecutive fixes of
+  `RideLocation`, the same value every screen renders. The aggregate's
+  lat/lon is an average across whichever devices currently qualify, and
+  that set can change between updates; with two or more broadcasters, the
+  averaged point can shift sideways by a few meters purely because of that,
+  unrelated to the ride's actual heading. Recomputing the heading on every
+  such shift made the arrow erratic once more than one device was moving
+  (it pointed correctly with a single broadcaster but became jittery as
+  soon as a second one joined), so `map.html` only updates the heading once
+  the reported location has moved at least `HEADING_MIN_MOVEMENT_METERS`
+  (8m) from the last point used to compute one — small sideways jitter is
+  ignored while genuine forward progress still steers the arrow.
 - **Corroboration (telling the shared ride apart from a passenger's own
   car):** speed and movement alone cannot distinguish a passenger driving
   their own private vehicle from the origin from actually being in the
@@ -275,7 +276,7 @@ operation.
   second broadcaster is also active; it cannot, by itself, catch a
   passenger who takes their own car while otherwise being the only device
   broadcasting for that ride code. The reliable, primary fix for someone
-  who knows they're taking their own car is the manual "private car"
+  who knows they're taking their own car is the manual "stay home"
   override (section 3.2), which blocks their device from broadcasting at
   all, automatic or manual.
 - **Staleness:** there is no server-side TTL. Each device's sample older
@@ -370,7 +371,7 @@ in the settings screen.
   button) always showing an antenna icon, colored `status_active` green
   while broadcasting or `status_idle` gray with a red "blocked" badge
   overlaid whenever it isn't, for any reason — no separate text badge
-  duplicates it. The "private car" button follows the same round-icon
+  duplicates it. The "stay home" button follows the same round-icon
   language: `brand_accent` (highlighted) when active, `status_idle`
   (faded) when off.
 - Full-screen permission onboarding flow shown on install (see 3.7).

@@ -176,14 +176,9 @@ class BroadcastService : Service() {
             if (speedKmh > RideConfig.MOVING_SPEED_THRESHOLD_KMH) {
                 lastMovingAtMillis = System.currentTimeMillis()
             }
-            // GPS-reported direction of travel, when available — this device's
-            // own contribution to the aggregate's direction arrow (see
-            // FirebaseLocationRepository.aggregate), independent of how the
-            // averaged position itself moves between fixes.
-            val headingDegrees = if (location.hasBearing()) location.bearing.toDouble() else null
             val rideCode = prefs.rideCode
             serviceScope.launch {
-                locationRepository.postLocation(rideCode, location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis, headingDegrees)
+                locationRepository.postLocation(rideCode, location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis)
             }
 
             if (System.currentTimeMillis() >= rideEndDeadlineMillis()) {

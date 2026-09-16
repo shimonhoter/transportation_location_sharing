@@ -193,13 +193,13 @@
     }
 
     var rideMarker = null;
-    var lastRideLatLon = null;
     var zoneSourceId = 'alert-zones';
     var lastZones = [];
 
     // Bearing in degrees (0 = north) from point 1 to point 2, used to point
     // the ride marker's arrow in the direction of travel (like Waze/Google
-    // Maps), computed client-side since posted samples carry no heading.
+    // Maps), computed client-side from the reported (aggregated) location's
+    // own progression between updates.
     function bearingDegrees(lat1, lon1, lat2, lon2) {
       var toRad = Math.PI / 180;
       var y = Math.sin((lon2 - lon1) * toRad) * Math.cos(lat2 * toRad);
@@ -207,6 +207,30 @@
         Math.sin(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.cos((lon2 - lon1) * toRad);
       return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
+
+    // Great-circle distance in meters, used to smooth the direction arrow
+    // (see updateRideLocation).
+    function distanceMetersLatLon(lat1, lon1, lat2, lon2) {
+      var toRad = Math.PI / 180;
+      var earthRadius = 6371000;
+      var dLat = (lat2 - lat1) * toRad;
+      var dLon = (lon2 - lon1) * toRad;
+      var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // The reported (aggregated) location can shift sideways by a few meters
+    // between updates purely because the set of devices contributing to the
+    // average changed (see FirebaseLocationRepository.aggregate) — not
+    // because the ride actually changed direction. Recomputing the heading
+    // from every such tiny move made the arrow/map rotation erratic once
+    // more than one device was broadcasting. Only updating it once the
+    // reported location has moved at least this far from the last point
+    // used to compute a heading keeps the arrow following genuine forward
+    // progress while ignoring that jitter.
+    var HEADING_MIN_MOVEMENT_METERS = 8;
+    var lastHeadingRefLatLon = null;
 
     // A triangular direction arrow (Waze/Google Maps style) instead of a
     // plain dot, so the marker itself hints at which way the ride is
@@ -260,42 +284,36 @@
 
     // --- Functions called from Kotlin via evaluateJavascript ---
 
-    // reportedHeading, when given, is the circular mean of the contributing
-    // devices' own GPS bearings (computed natively in
-    // FirebaseLocationRepository.aggregate) and is always preferred over
-    // deriving a heading from consecutive aggregate fixes here: with two or
-    // more devices broadcasting, which devices qualify for the aggregate can
-    // change from one update to the next, so the averaged point can shift
-    // sideways in a way that has nothing to do with the ride's actual
-    // direction of travel — the from-fixes calculation below is only a
-    // fallback for when no device has reported a bearing yet (e.g. not
-    // moving fast enough for GPS to derive one).
-    function updateRideLocation(lat, lon, reportedHeading) {
+    function updateRideLocation(lat, lon) {
       if (!rideMarker) {
         rideMarker = new maplibregl.Marker({ element: createRideMarkerElement() }).setLngLat([lon, lat]).addTo(map);
       } else {
         rideMarker.setLngLat([lon, lat]);
       }
-      var heading = (typeof reportedHeading === 'number') ? reportedHeading : null;
-      if (heading === null && lastRideLatLon) {
-        heading = bearingDegrees(lastRideLatLon[0], lastRideLatLon[1], lat, lon);
+
+      if (!lastHeadingRefLatLon) {
+        lastHeadingRefLatLon = [lat, lon];
+      } else {
+        var movedMeters = distanceMetersLatLon(lastHeadingRefLatLon[0], lastHeadingRefLatLon[1], lat, lon);
+        if (movedMeters >= HEADING_MIN_MOVEMENT_METERS) {
+          lastHeading = bearingDegrees(lastHeadingRefLatLon[0], lastHeadingRefLatLon[1], lat, lon);
+          lastHeadingRefLatLon = [lat, lon];
+        }
       }
-      if (heading !== null) lastHeading = heading;
-      lastRideLatLon = [lat, lon];
 
       // In rotation mode the map itself turns to face the direction of
       // travel (Waze-style heading-up), so the arrow stays pointing straight
       // up on screen; otherwise the arrow rotates in place to show heading.
       var arrow = rideMarker.getElement().querySelector('.ride-marker-arrow');
-      if (arrow && heading !== null) {
-        arrow.style.transform = 'rotate(' + (rotationEnabled ? 0 : heading) + 'deg)';
+      if (arrow && lastHeading !== null) {
+        arrow.style.transform = 'rotate(' + (rotationEnabled ? 0 : lastHeading) + 'deg)';
       }
 
       // Explicit zoom keeps whatever level the user is currently at — never
       // pulled back to some default just because auto-center re-centers.
       if (autoCenterEnabled) {
         var easeOpts = { center: [lon, lat], zoom: map.getZoom(), duration: 500 };
-        if (rotationEnabled && heading !== null) easeOpts.bearing = heading;
+        if (rotationEnabled && lastHeading !== null) easeOpts.bearing = lastHeading;
         map.easeTo(easeOpts);
       }
     }
@@ -305,7 +323,7 @@
         rideMarker.remove();
         rideMarker = null;
       }
-      lastRideLatLon = null;
+      lastHeadingRefLatLon = null;
       lastHeading = null;
     }
 

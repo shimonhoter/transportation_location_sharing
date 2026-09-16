@@ -9,18 +9,8 @@ import com.google.firebase.database.ValueEventListener
 import com.shimonhoter.ridelocationshare.config.RideConfig
 import com.shimonhoter.ridelocationshare.util.GeoUtil
 import kotlinx.coroutines.tasks.await
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
 
-data class RideLocation(
-    val lat: Double,
-    val lon: Double,
-    val nickname: String?,
-    val ageSeconds: Double,
-    val avgSpeedKmh: Double,
-    val headingDegrees: Double?
-)
+data class RideLocation(val lat: Double, val lon: Double, val nickname: String?, val ageSeconds: Double, val avgSpeedKmh: Double)
 
 private data class DeviceSample(
     val lat: Double,
@@ -28,8 +18,7 @@ private data class DeviceSample(
     val speedKmh: Double,
     val nickname: String?,
     val ageSeconds: Double,
-    val lastMovingAtMillis: Long,
-    val headingDegrees: Double?
+    val lastMovingAtMillis: Long
 )
 
 /**
@@ -83,18 +72,10 @@ class FirebaseLocationRepository {
         return auth.currentUser!!.uid
     }
 
-    suspend fun postLocation(
-        rideCode: String,
-        lat: Double,
-        lon: Double,
-        speedKmh: Double,
-        nickname: String?,
-        lastMovingAtMillis: Long,
-        headingDegrees: Double?
-    ): Boolean {
+    suspend fun postLocation(rideCode: String, lat: Double, lon: Double, speedKmh: Double, nickname: String?, lastMovingAtMillis: Long): Boolean {
         return try {
             val uid = ensureSignedIn()
-            val data = mutableMapOf<String, Any?>(
+            val data = mapOf(
                 "lat" to lat,
                 "lon" to lon,
                 "speedKmh" to speedKmh,
@@ -102,7 +83,6 @@ class FirebaseLocationRepository {
                 "updatedAt" to System.currentTimeMillis(),
                 "lastMovingAt" to lastMovingAtMillis
             )
-            if (headingDegrees != null) data["heading"] = headingDegrees
             devicesRef(rideCode).child(uid).setValue(data).await()
             true
         } catch (_: Exception) {
@@ -197,29 +177,7 @@ class FirebaseLocationRepository {
         val avgSpeedKmh = chosen.sumOf { it.speedKmh } / chosen.size
         val freshestAgeSeconds = chosen.minOf { it.ageSeconds }
         val nickname = chosen.firstNotNullOfOrNull { it.nickname }
-        val headingDegrees = averageHeading(chosen.mapNotNull { it.headingDegrees })
-        return RideLocation(avgLat, avgLon, nickname, freshestAgeSeconds, avgSpeedKmh, headingDegrees)
-    }
-
-    /**
-     * Circular mean of the contributing devices' own GPS-reported bearings,
-     * not a heading derived from consecutive aggregate positions. The
-     * aggregate's lat/lon is an average across whichever devices currently
-     * qualify (see [aggregate]), and that qualifying set can change from one
-     * update to the next — with two or more broadcasters, the averaged point
-     * can shift sideways in a way that has nothing to do with the ride's
-     * actual direction of travel, which made a position-to-position bearing
-     * calculation unreliable once more than one device was moving. Each
-     * device's own bearing doesn't have that problem, so it's aggregated
-     * directly instead. Returns null if no contributing device reported one
-     * (e.g. not moving fast enough yet for GPS to derive a bearing).
-     */
-    private fun averageHeading(headingsDegrees: List<Double>): Double? {
-        if (headingsDegrees.isEmpty()) return null
-        val toRad = Math.PI / 180.0
-        val sinSum = headingsDegrees.sumOf { sin(it * toRad) }
-        val cosSum = headingsDegrees.sumOf { cos(it * toRad) }
-        return (Math.toDegrees(atan2(sinSum, cosSum)) + 360.0) % 360.0
+        return RideLocation(avgLat, avgLon, nickname, freshestAgeSeconds, avgSpeedKmh)
     }
 
     private fun parseSample(child: DataSnapshot, now: Long): DeviceSample? {
@@ -231,8 +189,7 @@ class FirebaseLocationRepository {
         val speedKmh = child.child("speedKmh").getValue(Double::class.java) ?: 0.0
         val nickname = child.child("nickname").getValue(String::class.java)
         val lastMovingAtMillis = child.child("lastMovingAt").getValue(Long::class.java) ?: 0L
-        val headingDegrees = child.child("heading").getValue(Double::class.java)
-        return DeviceSample(lat, lon, speedKmh, nickname, ageSeconds, lastMovingAtMillis, headingDegrees)
+        return DeviceSample(lat, lon, speedKmh, nickname, ageSeconds, lastMovingAtMillis)
     }
 
     companion object {
