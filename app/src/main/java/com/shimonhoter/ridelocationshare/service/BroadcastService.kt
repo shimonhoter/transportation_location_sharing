@@ -107,7 +107,7 @@ class BroadcastService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_MANUAL_BROADCAST -> beginBroadcasting()
+            ACTION_MANUAL_BROADCAST -> if (!prefs.isPrivateCarActive()) beginBroadcasting()
             ACTION_AUTO_START -> Unit // fall through to ensure monitoring below
             ACTION_REFRESH_SETTINGS -> applyRefreshedSettings()
         }
@@ -200,7 +200,7 @@ class BroadcastService : Service() {
 
     /** Start condition: inside the origin geofence AND has moved beyond the minimum threshold since. */
     private fun checkAutoStartCondition(location: Location) {
-        if (prefs.isSkippedToday()) return
+        if (prefs.isSkippedToday() || prefs.isPrivateCarActive()) return
         val origin = prefs.origin ?: return
         val distanceFromOrigin = GeoUtil.distanceMeters(location.latitude, location.longitude, origin.lat, origin.lon)
 

@@ -19,6 +19,8 @@ import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.service.RideSessionState
 import com.shimonhoter.ridelocationshare.ui.UiKit
 import com.shimonhoter.ridelocationshare.ui.loadRideMap
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -34,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private var locationListenerRideCode: String? = null
     private var mapReady = false
     private var lastRenderedBroadcasting: Boolean? = null
+    private var privateCarAutoOffJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,6 +67,12 @@ class MainActivity : AppCompatActivity() {
                 BroadcastService.startManualBroadcast(this)
             }
         }
+        binding.btnSkipToday.setOnClickListener {
+            val newValue = !prefs.isSkippedToday()
+            prefs.setSkipToday(newValue)
+            renderSkipTodayToggle(newValue)
+        }
+        binding.btnPrivateCar.setOnClickListener { togglePrivateCarMode() }
         binding.btnSettings.setOnClickListener {
             startActivity(android.content.Intent(this, SettingsActivity::class.java))
         }
@@ -72,12 +81,9 @@ class MainActivity : AppCompatActivity() {
         }
         binding.btnHelp.setOnClickListener { showHelp() }
 
-        binding.switchSkipToday.isChecked = prefs.isSkippedToday()
-        updateSkipTodayEmphasis(binding.switchSkipToday.isChecked)
-        binding.switchSkipToday.setOnCheckedChangeListener { _, isChecked ->
-            prefs.setSkipToday(isChecked)
-            updateSkipTodayEmphasis(isChecked)
-        }
+        renderSkipTodayToggle(prefs.isSkippedToday())
+        renderPrivateCarToggle()
+        schedulePrivateCarAutoOffRefresh()
 
         RideSessionState.currentLocation.observe(this) { location ->
             renderStatus(location)
@@ -103,8 +109,12 @@ class MainActivity : AppCompatActivity() {
             RideSessionState.currentLocation.value = location
         }
         // Re-evaluate on every return to this screen too (e.g. after toggling
-        // Prefs.historyEnabled or changing the origin in Settings).
+        // Prefs.historyEnabled or changing the origin in Settings, or private
+        // car mode having auto-expired while this screen wasn't visible).
         refreshEta()
+        renderPrivateCarToggle()
+        renderBroadcastToggle(RideSessionState.isThisDeviceBroadcasting.value == true)
+        schedulePrivateCarAutoOffRefresh()
     }
 
     override fun onStop() {
@@ -119,32 +129,32 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderStatus(location: RideLocation?) {
         if (location == null) {
-            binding.tvStatus.text = getString(R.string.status_no_data)
-            binding.tvStatusDetail.text = ""
-            binding.tvStatus.setTextColor(UiKit.statusColor(this, false))
             if (mapReady) binding.webViewMap.evaluateJavascript("clearRideLocation()", null)
         } else {
-            binding.tvStatus.text = getString(R.string.status_broadcasting)
-            binding.tvStatus.setTextColor(UiKit.statusColor(this, true))
-            binding.tvStatusDetail.text = buildString {
-                append(UiKit.formatAge(location.ageSeconds))
-                if (!location.nickname.isNullOrBlank()) append(" · ${location.nickname}")
-            }
             renderRideLocation(location)
         }
     }
 
     /**
      * The round toggle button is the single source of truth for "is THIS
-     * device broadcasting" — its color always matches
-     * RideSessionState.isThisDeviceBroadcasting, whether that changed because
-     * the user tapped it or because BroadcastService started/stopped
-     * broadcasting automatically. A toast fires only on an actual change
-     * (never on the initial value delivered when the observer attaches).
+     * device broadcasting" — its icon (bus when off, antenna when on) and
+     * color always match RideSessionState.isThisDeviceBroadcasting, whether
+     * that changed because the user tapped it or because BroadcastService
+     * started/stopped broadcasting automatically. A toast fires only on an
+     * actual change (never on the initial value delivered when the observer
+     * attaches). Disabled outright while private car mode blocks
+     * broadcasting, so a tap can't do anything the service would just
+     * reject anyway.
      */
     private fun renderBroadcastToggle(isBroadcasting: Boolean) {
+        binding.btnBroadcastToggle.text = getString(
+            if (isBroadcasting) R.string.broadcast_toggle_icon_on else R.string.broadcast_toggle_icon_off
+        )
         binding.btnBroadcastToggle.backgroundTintList =
             ColorStateList.valueOf(UiKit.statusColor(this, isBroadcasting))
+        val privateCarActive = prefs.isPrivateCarActive()
+        binding.btnBroadcastToggle.isEnabled = !privateCarActive
+        binding.btnBroadcastToggle.alpha = if (privateCarActive) 0.5f else 1f
 
         if (lastRenderedBroadcasting != null && lastRenderedBroadcasting != isBroadcasting) {
             val message = if (isBroadcasting) R.string.broadcast_started_message else R.string.broadcast_stopped_message
@@ -153,8 +163,47 @@ class MainActivity : AppCompatActivity() {
         lastRenderedBroadcasting = isBroadcasting
     }
 
-    private fun updateSkipTodayEmphasis(isChecked: Boolean) {
-        binding.switchSkipToday.alpha = if (isChecked) 1f else 0.5f
+    private fun renderSkipTodayToggle(isSkipped: Boolean) {
+        binding.btnSkipToday.backgroundTintList = ColorStateList.valueOf(
+            getColor(if (isSkipped) R.color.brand_accent else R.color.status_idle)
+        )
+    }
+
+    private fun togglePrivateCarMode() {
+        if (prefs.isPrivateCarActive()) {
+            prefs.deactivatePrivateCarMode()
+            Toast.makeText(this, R.string.private_car_deactivated_message, Toast.LENGTH_SHORT).show()
+        } else {
+            if (RideSessionState.isThisDeviceBroadcasting.value == true) {
+                BroadcastService.stop(this)
+            }
+            prefs.activatePrivateCarMode()
+            Toast.makeText(this, R.string.private_car_activated_message, Toast.LENGTH_SHORT).show()
+        }
+        renderPrivateCarToggle()
+        renderBroadcastToggle(RideSessionState.isThisDeviceBroadcasting.value == true)
+        schedulePrivateCarAutoOffRefresh()
+    }
+
+    private fun renderPrivateCarToggle() {
+        binding.btnPrivateCar.backgroundTintList = ColorStateList.valueOf(
+            getColor(if (prefs.isPrivateCarActive()) R.color.brand_accent else R.color.status_idle)
+        )
+    }
+
+    /** Re-renders the private car and broadcast toggles the moment the mode
+     * naturally expires while this screen is open, instead of only on the
+     * next onStart(). */
+    private fun schedulePrivateCarAutoOffRefresh() {
+        privateCarAutoOffJob?.cancel()
+        val remainingMillis = prefs.privateCarRemainingMillis()
+        if (remainingMillis > 0) {
+            privateCarAutoOffJob = lifecycleScope.launch {
+                delay(remainingMillis)
+                renderPrivateCarToggle()
+                renderBroadcastToggle(RideSessionState.isThisDeviceBroadcasting.value == true)
+            }
+        }
     }
 
     private fun renderRideLocation(location: RideLocation) {

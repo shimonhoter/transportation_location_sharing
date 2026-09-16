@@ -15,10 +15,4 @@ object UiKit {
         context,
         if (isBroadcasting) R.color.status_active else R.color.status_idle
     )
-
-    fun formatAge(ageSeconds: Double): String = when {
-        ageSeconds < 60 -> "עודכן לפני פחות מדקה"
-        ageSeconds < 3600 -> "עודכן לפני ${(ageSeconds / 60).toInt()} דקות"
-        else -> "עודכן לפני ${(ageSeconds / 3600).toInt()} שעות"
-    }
 }

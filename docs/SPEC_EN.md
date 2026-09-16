@@ -106,21 +106,36 @@ An "already alerted" flag per zone prevents repeat notifications within
 the same ride, and resets when the ride ends.
 
 ### 3.6 Manual overrides
-A single round toggle button on the main screen, below the map, replaces
-what were originally two separate buttons:
-- **Tapped while off (gray)** — force-starts broadcasting from this device
-  immediately, bypassing the movement/geofence start condition ("Broadcast
-  now").
-- **Tapped while on (green)** — force-stops broadcasting from this device
-  immediately ("I got off").
+Three round buttons float directly on the map, bottom-center (no card
+background — see 6):
 
-The button's color always reflects `RideSessionState.isThisDeviceBroadcasting`
-regardless of what changed it — a tap, or BroadcastService starting/stopping
-broadcasting automatically per the geofence/movement or safety-timer
-conditions — and a short toast ("Broadcasting started"/"Broadcasting
-stopped") fires on every actual transition. Both directions go through a
-single, well-defined service call (a known bug in early builds fired two
-separate/racing service-start calls, causing intermittent failures).
+- **Broadcast toggle (center, larger)** — replaces what were originally two
+  separate buttons. Shows a bus icon while off; tapping it force-starts
+  broadcasting immediately, bypassing the movement/geofence start condition
+  ("Broadcast now"). Shows a green antenna icon while on; tapping it
+  force-stops broadcasting immediately ("I got off"). Its icon and color
+  always reflect `RideSessionState.isThisDeviceBroadcasting` regardless of
+  what changed it — a tap, or BroadcastService starting/stopping
+  broadcasting automatically per the geofence/movement or safety-timer
+  conditions — and a short toast ("Broadcasting started"/"stopped") fires
+  on every actual transition. Both directions go through a single,
+  well-defined service call (a known bug in early builds fired two
+  separate/racing service-start calls, causing intermittent failures).
+  Disabled (dimmed) while private car mode (below) is active.
+- **"Not riding today"** — a 🚫 icon button, orange when active. Suppresses
+  the automatic start condition for the rest of the day only; does not
+  touch a broadcast already in progress or the manual toggle. See 3.2.
+- **"Private car"** — a 🚗 icon button, orange when active, off by default.
+  Tapping it while off immediately stops any broadcast already in progress
+  from this device (if one is active) and then blocks **both** automatic
+  and manual broadcasting entirely — stronger than "not riding today",
+  which only blocks the automatic path. Auto-reverts to off after
+  `Prefs.privateCarDurationMinutes` (Settings screen, default 120 minutes)
+  — or immediately on a second tap. Meant for "I know right now, not just
+  in advance, that I'm not on the shared ride" (`BroadcastService` enforces
+  this at both `checkAutoStartCondition` and the `ACTION_MANUAL_BROADCAST`
+  handler, so it holds even if the manual toggle were tapped some other
+  way).
 
 ### 3.7 Permissions onboarding
 On first run, the app walks the user through a full permission sequence in
@@ -334,12 +349,17 @@ in the settings screen.
   and `Theme.MaterialComponents.DayNight` with `values`/`values-night`
   color sets for light/dark mode. Centralized in `UiKit.kt` and reused
   across all screens.
-- A single, clear status card communicates state ("no data yet" / "ride
-  ended" / "broadcasting") — these must never be duplicated as separate
-  overlapping messages.
+- No status card or text badge on the main screen — state is communicated
+  entirely through the round buttons themselves (icon + color), never
+  duplicated as separate overlapping messages.
 - This device's own broadcasting state has exactly one indicator: the
-  round manual toggle button's color (`status_active` green when on,
-  `status_idle` gray when off) — no separate text badge duplicates it.
+  round broadcast toggle button, whose icon swaps between a bus (off) and
+  a transmitting antenna (on) and whose color follows `status_active`
+  green when on / `status_idle` gray when off — no separate text badge
+  duplicates it. It's disabled and dimmed whenever "private car" mode
+  blocks broadcasting. The "not riding today" and "private car" buttons
+  follow the same round-icon language: `brand_accent` (highlighted) when
+  active, `status_idle` (faded) when off.
 - Full-screen permission onboarding flow shown on install (see 3.7).
 - The map auto-centers on the ride's location on every update, on by
   default at every app launch; a toggle control on the map (view mode

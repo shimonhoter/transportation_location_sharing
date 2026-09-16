@@ -126,6 +126,30 @@ class Prefs(context: Context) {
 
     private fun dayKey(cal: Calendar): Int = cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
 
+    /** How long activating "private car" mode blocks broadcasting for, in minutes, before it auto-reverts. User-configurable via Settings. */
+    var privateCarDurationMinutes: Int
+        get() = sp.getInt(KEY_PRIVATE_CAR_DURATION, RideConfig.DEFAULT_PRIVATE_CAR_DURATION_MINUTES)
+        set(value) = sp.edit().putInt(KEY_PRIVATE_CAR_DURATION, value).apply()
+
+    private var privateCarActiveUntilMillis: Long
+        get() = sp.getLong(KEY_PRIVATE_CAR_UNTIL, 0L)
+        set(value) = sp.edit().putLong(KEY_PRIVATE_CAR_UNTIL, value).apply()
+
+    /** While active, neither automatic nor manual broadcasting is allowed from this device (a passenger who took their own private car instead of the shared ride). */
+    fun isPrivateCarActive(now: Long = System.currentTimeMillis()): Boolean = privateCarActiveUntilMillis > now
+
+    fun activatePrivateCarMode(now: Long = System.currentTimeMillis()) {
+        privateCarActiveUntilMillis = now + privateCarDurationMinutes * 60_000L
+    }
+
+    fun deactivatePrivateCarMode() {
+        privateCarActiveUntilMillis = 0L
+    }
+
+    /** Milliseconds until private car mode auto-expires, or 0 if it isn't currently active. */
+    fun privateCarRemainingMillis(now: Long = System.currentTimeMillis()): Long =
+        (privateCarActiveUntilMillis - now).coerceAtLeast(0L)
+
     private fun readPoint(latKey: String, lonKey: String): GeoPoint? {
         if (!sp.contains(latKey) || !sp.contains(lonKey)) return null
         val lat = sp.getFloat(latKey, 0f).toDouble()
@@ -166,6 +190,8 @@ class Prefs(context: Context) {
         private const val KEY_CORROBORATION_RADIUS = "corroboration_radius"
         private const val KEY_HISTORY_ENABLED = "history_enabled"
         private const val KEY_SKIPPED_RIDE_DAY = "skipped_ride_day_key"
+        private const val KEY_PRIVATE_CAR_DURATION = "private_car_duration_minutes"
+        private const val KEY_PRIVATE_CAR_UNTIL = "private_car_active_until"
 
         // Sunday(1)-Thursday(5): the default Israeli work week.
         private val DEFAULT_ACTIVE_DAYS = setOf("1", "2", "3", "4", "5")

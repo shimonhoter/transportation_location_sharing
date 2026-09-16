@@ -131,6 +131,8 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.switchHistoryEnabled.isChecked = prefs.historyEnabled
 
+        binding.etPrivateCarDuration.setText(prefs.privateCarDurationMinutes.toString())
+
         binding.etTripDuration.setText(prefs.tripDurationMinutes.toString())
         binding.etSafetyMargin.setText(prefs.safetyMarginMinutes.toString())
 
@@ -294,6 +296,7 @@ class SettingsActivity : AppCompatActivity() {
         prefs.locationUpdateIntervalSeconds = binding.seekLocationUpdateInterval.progress
         prefs.corroborationRadiusMeters = binding.seekCorroborationRadius.progress
         prefs.historyEnabled = binding.switchHistoryEnabled.isChecked
+        prefs.privateCarDurationMinutes = binding.etPrivateCarDuration.text?.toString()?.toIntOrNull() ?: prefs.privateCarDurationMinutes
         prefs.tripDurationMinutes = binding.etTripDuration.text?.toString()?.toIntOrNull() ?: prefs.tripDurationMinutes
         prefs.safetyMarginMinutes = binding.etSafetyMargin.text?.toString()?.toIntOrNull() ?: prefs.safetyMarginMinutes
         prefs.activeWindows = pendingTimeWindows.toList()

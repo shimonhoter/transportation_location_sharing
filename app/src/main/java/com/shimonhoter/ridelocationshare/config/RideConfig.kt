@@ -68,4 +68,15 @@ object RideConfig {
 
     /** Below this average speed, a live position/speed pair isn't trusted to extrapolate an ETA — falls back to the historical estimate instead. */
     const val MIN_SPEED_FOR_LIVE_ETA_KMH = 5.0
+
+    /**
+     * "Private car" mode (main-screen toggle): while active, blocks both
+     * automatic and manual broadcasting from this device — for a passenger
+     * who knows right now, not just in advance, that they're not on the
+     * shared ride. Auto-reverts after this many minutes rather than
+     * requiring the user to remember to turn it back off.
+     * User-configurable via Settings (Prefs.privateCarDurationMinutes);
+     * this is only the default.
+     */
+    const val DEFAULT_PRIVATE_CAR_DURATION_MINUTES = 120
 }

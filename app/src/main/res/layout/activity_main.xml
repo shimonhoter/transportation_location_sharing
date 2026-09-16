@@ -75,66 +75,63 @@
             android:textSize="@dimen/text_size_body" />
     </com.google.android.material.card.MaterialCardView>
 
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/cardStatus"
-        style="@style/RideCard"
-        android:layout_width="0dp"
-        android:layout_marginStart="@dimen/spacing_md"
-        android:layout_marginEnd="@dimen/spacing_md"
-        android:layout_marginBottom="@dimen/spacing_md"
-        app:cardElevation="@dimen/card_elevation_raised"
+    <LinearLayout
+        android:id="@+id/bottomButtonsRow"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="@dimen/spacing_lg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="@dimen/spacing_md">
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSkipToday"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="@dimen/spacing_md"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:padding="0dp"
+            android:text="@string/skip_today_icon"
+            android:textSize="22sp"
+            app:cornerRadius="28dp"
+            app:backgroundTint="@color/status_idle"
+            android:contentDescription="@string/skip_today_label" />
 
-            <TextView
-                android:id="@+id/tvStatus"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/status_no_data"
-                android:textColor="@color/on_surface"
-                android:textSize="@dimen/text_size_body"
-                android:textStyle="bold" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnBroadcastToggle"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:padding="0dp"
+            android:text="@string/broadcast_toggle_icon_off"
+            android:textSize="28sp"
+            app:cornerRadius="36dp"
+            app:backgroundTint="@color/status_idle"
+            android:contentDescription="@string/broadcast_toggle_content_description" />
 
-            <TextView
-                android:id="@+id/tvStatusDetail"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/spacing_xs"
-                android:layout_marginBottom="@dimen/spacing_sm"
-                android:textColor="@color/on_surface_muted"
-                android:textSize="@dimen/text_size_caption" />
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/switchSkipToday"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="@dimen/spacing_sm"
-                android:text="@string/skip_today_label"
-                android:textSize="@dimen/text_size_caption" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnBroadcastToggle"
-                android:layout_width="72dp"
-                android:layout_height="72dp"
-                android:layout_gravity="center_horizontal"
-                android:insetLeft="0dp"
-                android:insetTop="0dp"
-                android:insetRight="0dp"
-                android:insetBottom="0dp"
-                android:padding="0dp"
-                android:text="@string/broadcast_toggle_icon"
-                android:textSize="28sp"
-                app:cornerRadius="36dp"
-                app:backgroundTint="@color/status_idle"
-                android:contentDescription="@string/broadcast_toggle_content_description" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPrivateCar"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="@dimen/spacing_md"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:padding="0dp"
+            android:text="@string/private_car_icon"
+            android:textSize="22sp"
+            app:cornerRadius="28dp"
+            app:backgroundTint="@color/status_idle"
+            android:contentDescription="@string/private_car_content_description" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
