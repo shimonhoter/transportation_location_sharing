@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.text.HtmlCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.LocationServices
 import com.shimonhoter.ridelocationshare.data.GeoPoint
@@ -101,7 +102,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun showHelp() {
         AlertDialog.Builder(this)
             .setTitle(R.string.settings_help_title)
-            .setMessage(R.string.settings_help_body)
+            .setMessage(HtmlCompat.fromHtml(getString(R.string.settings_help_body), HtmlCompat.FROM_HTML_MODE_LEGACY))
             .setPositiveButton(R.string.help_close_button, null)
             .show()
     }

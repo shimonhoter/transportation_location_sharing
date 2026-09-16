@@ -7,6 +7,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.text.HtmlCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.database.ValueEventListener
 import com.shimonhoter.ridelocationshare.config.RideConfig
@@ -246,7 +247,7 @@ class MainActivity : AppCompatActivity() {
     private fun showHelp() {
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(R.string.help_title)
-            .setMessage(R.string.help_body)
+            .setMessage(HtmlCompat.fromHtml(getString(R.string.help_body), HtmlCompat.FROM_HTML_MODE_LEGACY))
             .setPositiveButton(R.string.help_close_button, null)
             .show()
     }
