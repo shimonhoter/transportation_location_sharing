@@ -79,4 +79,16 @@ object RideConfig {
      * this is only the default.
      */
     const val DEFAULT_PRIVATE_CAR_DURATION_MINUTES = 120
+
+    /**
+     * How long an alert-zone notification's sound loops for before
+     * auto-stopping, if the user hasn't dismissed the full-screen alert
+     * popup first — a safety cap, since the sound is meant to keep ringing
+     * until acknowledged, not forever if the app/device is unattended.
+     * User-configurable via Settings (Prefs.alertSoundDurationSeconds);
+     * this is only the default/bounds.
+     */
+    const val DEFAULT_ALERT_SOUND_DURATION_SECONDS = 30
+    const val MIN_ALERT_SOUND_DURATION_SECONDS = 5
+    const val MAX_ALERT_SOUND_DURATION_SECONDS = 300
 }

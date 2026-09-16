@@ -98,11 +98,18 @@ moves the map, not the pin).
 
 ### 3.5 Personal alert zones
 A user can mark arbitrary zones on the map. When the ride's shared location
-enters such a zone, the device (and only that device) shows a local
-notification with sound. This check runs **only on-device**, using the
-zone coordinates stored locally — the server never sees zone definitions.
-An "already alerted" flag per zone prevents repeat notifications within
-the same ride, and resets when the ride ends.
+enters such a zone, the device (and only that device) is alerted: a
+full-screen popup (`AlertZoneAlarmActivity`) is brought to the foreground
+via the notification's full-screen intent — even over the lock screen — and
+an alarm sound loops until the user dismisses it, capped at
+`Prefs.alertSoundDurationSeconds` (Settings screen, default 30s) as a
+safety net in case it's never dismissed. If `Prefs.historyEnabled` (4.5) is
+on and an origin is configured, the popup and notification also show the
+estimated arrival time at the user's stop, from the same local-history
+estimate used on the main screen. This check runs **only on-device**, using
+the zone coordinates stored locally — the server never sees zone
+definitions. An "already alerted" flag per zone prevents repeat
+notifications within the same ride, and resets when the ride ends.
 
 ### 3.6 Manual overrides
 Two round buttons float directly on the map, bottom-center (no card
@@ -121,7 +128,7 @@ background — see 6):
   well-defined service call (a known bug in early builds fired two
   separate/racing service-start calls, causing intermittent failures).
   Disabled (dimmed) while private car mode (below) is active.
-- **"Private car"** — a 🚗 icon button, orange when active, off by default.
+- **"Private car"** — a 🏠 icon button, orange when active, off by default.
   Tapping it while off immediately stops any broadcast already in progress
   from this device (if one is active) and then blocks **both** automatic
   and manual broadcasting entirely. Auto-reverts to off after
@@ -364,9 +371,15 @@ in the settings screen.
   center, never the zoom — whatever zoom level the user is currently at is
   passed straight back into the same `easeTo()` call, so it's never reset.
 - The ride's location is drawn as a triangular direction arrow (in the
-  style of Waze/Google Maps) rather than a plain dot, rotated to the
-  bearing between its last two fixes so it visually points the way the
-  ride is heading; with only one fix so far it points north by default.
+  style of Waze/Google Maps) rather than a plain dot; with only one fix so
+  far it points north by default.
+- Map rotation (Waze-style "heading up"), on by default: a toggle control
+  on the map (view mode only) switches between the map itself rotating to
+  face the ride's direction of travel while it's being auto-centered (the
+  arrow then stays pointing straight up on screen, since the map underneath
+  it is what turns) and a fixed north-up map with the arrow itself rotating
+  to the bearing between the ride's last two fixes. Only meaningful while
+  auto-centering is also on.
 - When enabled (Prefs.historyEnabled, see 4.5), an estimated arrival time
   at the user's stop is shown in a small card on the map's top-left
   corner, directly below the native Settings/Alert-zones/Help buttons

@@ -136,6 +136,11 @@ class Prefs(context: Context) {
     fun privateCarRemainingMillis(now: Long = System.currentTimeMillis()): Long =
         (privateCarActiveUntilMillis - now).coerceAtLeast(0L)
 
+    /** How long an alert-zone notification's sound loops for, in seconds, before auto-stopping if not dismissed first. User-configurable via Settings. */
+    var alertSoundDurationSeconds: Int
+        get() = sp.getInt(KEY_ALERT_SOUND_DURATION, RideConfig.DEFAULT_ALERT_SOUND_DURATION_SECONDS)
+        set(value) = sp.edit().putInt(KEY_ALERT_SOUND_DURATION, value).apply()
+
     private fun readPoint(latKey: String, lonKey: String): GeoPoint? {
         if (!sp.contains(latKey) || !sp.contains(lonKey)) return null
         val lat = sp.getFloat(latKey, 0f).toDouble()
@@ -177,6 +182,7 @@ class Prefs(context: Context) {
         private const val KEY_HISTORY_ENABLED = "history_enabled"
         private const val KEY_PRIVATE_CAR_DURATION = "private_car_duration_minutes"
         private const val KEY_PRIVATE_CAR_UNTIL = "private_car_active_until"
+        private const val KEY_ALERT_SOUND_DURATION = "alert_sound_duration_seconds"
 
         // Sunday(1)-Thursday(5): the default Israeli work week.
         private val DEFAULT_ACTIVE_DAYS = setOf("1", "2", "3", "4", "5")

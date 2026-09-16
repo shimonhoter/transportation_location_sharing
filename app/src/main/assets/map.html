@@ -142,6 +142,50 @@
       map.addControl(new AutoCenterControl(), 'top-right');
     }
 
+    // On by default (Waze-style "heading up" navigation view): while
+    // following the ride (autoCenterEnabled), the map itself rotates so the
+    // direction of travel always faces up on screen, rather than staying
+    // north-up. The marker's arrow then stays pointing straight up, since
+    // the map underneath it is what's turning.
+    var rotationEnabled = true;
+    var lastHeading = null;
+
+    function RotationControl() {}
+    RotationControl.prototype.onAdd = function (mapInstance) {
+      this._map = mapInstance;
+      var container = document.createElement('div');
+      container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.title = 'סיבוב מפה בכיוון הנסיעה';
+      btn.textContent = '🧭';
+      btn.style.opacity = rotationEnabled ? '1' : '0.4';
+      btn.onclick = function () {
+        rotationEnabled = !rotationEnabled;
+        btn.style.opacity = rotationEnabled ? '1' : '0.4';
+        var arrow = rideMarker ? rideMarker.getElement().querySelector('.ride-marker-arrow') : null;
+        if (rotationEnabled) {
+          if (arrow) arrow.style.transform = 'rotate(0deg)';
+          if (autoCenterEnabled && lastHeading !== null) {
+            map.easeTo({ bearing: lastHeading, duration: 500 });
+          }
+        } else {
+          map.easeTo({ bearing: 0, duration: 500 });
+          if (arrow && lastHeading !== null) arrow.style.transform = 'rotate(' + lastHeading + 'deg)';
+        }
+      };
+      container.appendChild(btn);
+      this._container = container;
+      return container;
+    };
+    RotationControl.prototype.onRemove = function () {
+      this._container.parentNode.removeChild(this._container);
+      this._map = undefined;
+    };
+    if (mode === 'view') {
+      map.addControl(new RotationControl(), 'top-right');
+    }
+
     function setMapStyleVariant(variant) {
       if (variant === currentStyleVariant) return;
       currentStyleVariant = variant;
@@ -222,17 +266,27 @@
       } else {
         rideMarker.setLngLat([lon, lat]);
       }
+      var heading = null;
       if (lastRideLatLon) {
-        var heading = bearingDegrees(lastRideLatLon[0], lastRideLatLon[1], lat, lon);
-        var arrow = rideMarker.getElement().querySelector('.ride-marker-arrow');
-        if (arrow) arrow.style.transform = 'rotate(' + heading + 'deg)';
+        heading = bearingDegrees(lastRideLatLon[0], lastRideLatLon[1], lat, lon);
+        lastHeading = heading;
       }
       lastRideLatLon = [lat, lon];
+
+      // In rotation mode the map itself turns to face the direction of
+      // travel (Waze-style heading-up), so the arrow stays pointing straight
+      // up on screen; otherwise the arrow rotates in place to show heading.
+      var arrow = rideMarker.getElement().querySelector('.ride-marker-arrow');
+      if (arrow && heading !== null) {
+        arrow.style.transform = 'rotate(' + (rotationEnabled ? 0 : heading) + 'deg)';
+      }
 
       // Explicit zoom keeps whatever level the user is currently at — never
       // pulled back to some default just because auto-center re-centers.
       if (autoCenterEnabled) {
-        map.easeTo({ center: [lon, lat], zoom: map.getZoom(), duration: 500 });
+        var easeOpts = { center: [lon, lat], zoom: map.getZoom(), duration: 500 };
+        if (rotationEnabled && heading !== null) easeOpts.bearing = heading;
+        map.easeTo(easeOpts);
       }
     }
 
@@ -242,6 +296,7 @@
         rideMarker = null;
       }
       lastRideLatLon = null;
+      lastHeading = null;
     }
 
     function centerMap(lat, lon, zoom) {

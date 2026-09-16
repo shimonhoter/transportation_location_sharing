@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:name=".RideApplication"
@@ -50,6 +51,13 @@
         <activity
             android:name=".MapPickerActivity"
             android:exported="false"
+            android:theme="@style/Theme.RideLocationShare" />
+
+        <activity
+            android:name=".AlertZoneAlarmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
             android:theme="@style/Theme.RideLocationShare" />
 
         <service
