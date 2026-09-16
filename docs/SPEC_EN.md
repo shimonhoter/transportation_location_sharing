@@ -222,19 +222,26 @@ operation.
   car):** speed and movement alone cannot distinguish a passenger driving
   their own private vehicle from the origin from actually being in the
   shared ride — both look identical to the app ("left the origin, then
-  moved fast"). So a device in the recently-moving set above only counts
-  toward the aggregate if at least one *other* recently-moving device is
-  within `Prefs.corroborationRadiusMeters` of it (Settings screen,
-  50-1000m range, default 300m, read fresh on every aggregate computation
-  so a change applies immediately) — several devices moving together
-  plausibly are the same vehicle, while a lone mover isn't shown as the
-  ride location at all. This is a secondary safety net with a real
-  trade-off: a single genuine early rider (before a second device is also
-  moving nearby) also won't show until corroborated. The reliable,
-  primary fix for someone who knows in advance they're taking their own
-  car is the manual "not riding today" override (section 3.2), which
-  prevents their device from auto-starting a broadcast in the first place
-  regardless of corroboration.
+  moved fast"). So whenever **two or more** devices are in the
+  recently-moving set above, each one only counts toward the aggregate if
+  at least one *other* recently-moving device is within
+  `Prefs.corroborationRadiusMeters` of it (Settings screen, 50-1000m
+  range, default 300m, read fresh on every aggregate computation so a
+  change applies immediately) — several devices moving together plausibly
+  are the same vehicle, while one of several movers off on its own isn't
+  shown. A single, lone mover is always trusted directly, with no
+  corroboration requirement — it has nothing to corroborate against by
+  definition, and the single most common case (exactly one person
+  currently broadcasting) must still show something (a bug where this
+  requirement applied even when solo made a lone broadcaster's own
+  location disappear a few seconds after it started moving). This makes
+  corroboration a secondary safety net that only ever engages when a
+  second broadcaster is also active; it cannot, by itself, catch a
+  passenger who takes their own car while otherwise being the only device
+  broadcasting for that ride code. The reliable, primary fix for someone
+  who knows in advance they're taking their own car is the manual "not
+  riding today" override (section 3.2), which prevents their device from
+  auto-starting a broadcast in the first place.
 - **Staleness:** there is no server-side TTL. Each device's sample older
   than `RideConfig.STALE_AFTER_SECONDS` (90s) is excluded from the
   aggregate by the client computing it — the same effective behavior the

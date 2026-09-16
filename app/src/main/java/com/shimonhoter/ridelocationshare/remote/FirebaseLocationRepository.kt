@@ -43,12 +43,16 @@ private data class DeviceSample(
  * below the threshold for longer than the grace window (e.g. a passenger
  * who got off and is now on foot), it is excluded from the aggregate
  * entirely rather than its now-irrelevant, jittery position dragging or
- * replacing the shown ride location. A moving device is further only
- * trusted if corroborated by at least one other moving device within
- * [RideConfig.DEFAULT_CORROBORATION_RADIUS_METERS] (see
- * Prefs.corroborationRadiusMeters) — speed alone can't tell a passenger's
- * private car apart from the shared ride, but a lone mover with nobody
- * else nearby isn't shown as the ride location. No history is kept: stale
+ * replacing the shown ride location. When two or more devices are moving
+ * at once, each is further only trusted if corroborated by at least one
+ * other moving device within [RideConfig.DEFAULT_CORROBORATION_RADIUS_METERS]
+ * (see Prefs.corroborationRadiusMeters) — speed alone can't tell a
+ * passenger's private car apart from the shared ride, but several devices
+ * moving together plausibly are the same vehicle, while one moving off on
+ * its own isn't shown. A single, lone mover has nothing to corroborate
+ * against and is always trusted directly — otherwise the single most
+ * common case (exactly one person currently broadcasting) would never
+ * show anything. No history is kept: stale
  * per-device entries are filtered out by age, not stored (docs/SPEC_EN.md
  * section 5). Every device signs in anonymously rather than carrying a
  * per-user credential (the old shared-token model has no server-side
@@ -136,26 +140,33 @@ class FirebaseLocationRepository {
         val hasEverMoved = fresh.filter { it.lastMovingAtMillis > 0L }
         val recentlyMoving = hasEverMoved.filter { now - it.lastMovingAtMillis <= graceMillis }
 
-        // Corroboration: a moving device only counts if at least one OTHER
-        // moving device is within corroborationRadiusMeters of it. Speed
-        // alone can't tell a passenger's own private car apart from the
-        // shared ride — both look like "left the origin, then moved fast" —
-        // but several devices moving together near each other plausibly are
-        // the same vehicle, while a lone mover isn't shown as the ride.
+        // Corroboration: when TWO OR MORE devices are moving at once, a
+        // moving device only counts if at least one OTHER moving device is
+        // within corroborationRadiusMeters of it. Speed alone can't tell a
+        // passenger's own private car apart from the shared ride — both
+        // look like "left the origin, then moved fast" — but several
+        // devices moving together near each other plausibly are the same
+        // vehicle, while one of several movers off on its own isn't shown.
+        // A LONE mover has nothing to corroborate against by definition, so
+        // it's trusted directly — corroboration only ever adds signal when
+        // there's a second broadcaster to compare against; requiring it
+        // even when solo would make the single most common case (exactly
+        // one person currently broadcasting) never show anything.
         val corroborated = recentlyMoving.filter { candidate ->
             recentlyMoving.any { other ->
                 other !== candidate && GeoUtil.distanceMeters(candidate.lat, candidate.lon, other.lat, other.lon) <= corroborationRadiusMeters
             }
         }
 
-        // Prefer corroborated, currently/recently moving devices. If none
-        // qualify but some devices have never yet registered a moving
-        // sample (e.g. the ride just started), average all fresh devices as
-        // a startup fallback. If every fresh device HAS moved before but
-        // none are corroborated right now (gotten off and on foot, or off
-        // on their own uncorroborated), exclude them rather than show a
-        // stale or unverified position.
+        // Prefer a lone mover or corroborated, currently/recently moving
+        // devices. If none qualify but some devices have never yet
+        // registered a moving sample (e.g. the ride just started), average
+        // all fresh devices as a startup fallback. If every fresh device
+        // HAS moved before but none qualify right now (gotten off and on
+        // foot, or one of several movers uncorroborated), exclude them
+        // rather than show a stale or unverified position.
         val chosen = when {
+            recentlyMoving.size == 1 -> recentlyMoving
             corroborated.isNotEmpty() -> corroborated
             hasEverMoved.size < fresh.size -> fresh
             else -> return null
