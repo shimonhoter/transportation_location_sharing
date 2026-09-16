@@ -5,7 +5,6 @@ import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.view.LayoutInflater
 import android.widget.CheckBox
 import android.widget.SeekBar
 import android.widget.Toast
@@ -21,11 +20,8 @@ import com.shimonhoter.ridelocationshare.data.TimeWindow
 import com.shimonhoter.ridelocationshare.history.RideHistoryStore
 import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.databinding.ActivitySettingsBinding
-import com.shimonhoter.ridelocationshare.databinding.DialogTimeWindowBinding
-import com.shimonhoter.ridelocationshare.databinding.ItemTimeWindowBinding
 import kotlinx.coroutines.launch
 import java.util.Calendar
-import java.util.UUID
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -36,7 +32,6 @@ class SettingsActivity : AppCompatActivity() {
     private var pendingOrigin: GeoPoint? = null
     private var pendingDestination: GeoPoint? = null
     private var mapPickerTarget: PickTarget? = null
-    private val pendingTimeWindows = mutableListOf<TimeWindow>()
 
     private enum class PickTarget { ORIGIN, DESTINATION }
 
@@ -66,7 +61,8 @@ class SettingsActivity : AppCompatActivity() {
         binding.btnOriginPickMap.setOnClickListener { openMapPicker(PickTarget.ORIGIN) }
         binding.btnDestinationPickMap.setOnClickListener { openMapPicker(PickTarget.DESTINATION) }
 
-        binding.btnAddTimeWindow.setOnClickListener { showTimeWindowDialog(null) }
+        binding.etWindowStart.setOnClickListener { pickTime(binding.etWindowStart) }
+        binding.etWindowEnd.setOnClickListener { pickTime(binding.etWindowEnd) }
 
         binding.seekGeofenceRadius.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -131,15 +127,14 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.switchHistoryEnabled.isChecked = prefs.historyEnabled
 
-        binding.etPrivateCarDuration.setText(prefs.privateCarDurationMinutes.toString())
         binding.etAlertSoundDuration.setText(prefs.alertSoundDurationSeconds.toString())
 
         binding.etTripDuration.setText(prefs.tripDurationMinutes.toString())
         binding.etSafetyMargin.setText(prefs.safetyMarginMinutes.toString())
 
-        pendingTimeWindows.clear()
-        pendingTimeWindows.addAll(prefs.activeWindows)
-        renderTimeWindowsList()
+        val window = prefs.activeWindow
+        binding.etWindowStart.setText(minutesToTime(window.startMinutes))
+        binding.etWindowEnd.setText(minutesToTime(window.endMinutes))
 
         val activeDays = prefs.activeDays
         binding.cbSunday.isChecked = Calendar.SUNDAY in activeDays
@@ -149,55 +144,6 @@ class SettingsActivity : AppCompatActivity() {
         binding.cbThursday.isChecked = Calendar.THURSDAY in activeDays
         binding.cbFriday.isChecked = Calendar.FRIDAY in activeDays
         binding.cbSaturday.isChecked = Calendar.SATURDAY in activeDays
-    }
-
-    private fun renderTimeWindowsList() {
-        binding.llTimeWindows.removeAllViews()
-        pendingTimeWindows.forEach { window ->
-            val itemBinding = ItemTimeWindowBinding.inflate(layoutInflater, binding.llTimeWindows, false)
-            itemBinding.tvTimeWindowLabel.text = "${minutesToTime(window.startMinutes)} – ${minutesToTime(window.endMinutes)}"
-            itemBinding.root.setOnClickListener { showTimeWindowDialog(window) }
-            itemBinding.btnDeleteTimeWindow.setOnClickListener { deleteTimeWindow(window) }
-            binding.llTimeWindows.addView(itemBinding.root)
-        }
-    }
-
-    private fun deleteTimeWindow(window: TimeWindow) {
-        if (pendingTimeWindows.size <= 1) {
-            Toast.makeText(this, R.string.time_windows_empty_error, Toast.LENGTH_SHORT).show()
-            return
-        }
-        pendingTimeWindows.removeAll { it.id == window.id }
-        renderTimeWindowsList()
-    }
-
-    private fun showTimeWindowDialog(existing: TimeWindow?) {
-        val dialogBinding = DialogTimeWindowBinding.inflate(LayoutInflater.from(this))
-        dialogBinding.etWindowStart.setText(minutesToTime(existing?.startMinutes ?: 5 * 60 + 30))
-        dialogBinding.etWindowEnd.setText(minutesToTime(existing?.endMinutes ?: 8 * 60 + 30))
-        dialogBinding.etWindowStart.setOnClickListener { pickTime(dialogBinding.etWindowStart) }
-        dialogBinding.etWindowEnd.setOnClickListener { pickTime(dialogBinding.etWindowEnd) }
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.active_windows_label)
-            .setView(dialogBinding.root)
-            .setPositiveButton(R.string.save_button) { _, _ ->
-                val startMinutes = timeToMinutes(dialogBinding.etWindowStart.text?.toString(), existing?.startMinutes ?: 0)
-                val endMinutes = timeToMinutes(dialogBinding.etWindowEnd.text?.toString(), existing?.endMinutes ?: 0)
-                if (endMinutes <= startMinutes) {
-                    Toast.makeText(this, R.string.time_window_invalid_error, Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                if (existing != null) {
-                    pendingTimeWindows.removeAll { it.id == existing.id }
-                    pendingTimeWindows.add(TimeWindow(existing.id, startMinutes, endMinutes))
-                } else {
-                    pendingTimeWindows.add(TimeWindow(UUID.randomUUID().toString(), startMinutes, endMinutes))
-                }
-                renderTimeWindowsList()
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
     }
 
     private fun updateGeofenceLabel(radius: Int) {
@@ -288,6 +234,13 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun save() {
+        val startMinutes = timeToMinutes(binding.etWindowStart.text?.toString(), prefs.activeWindow.startMinutes)
+        val endMinutes = timeToMinutes(binding.etWindowEnd.text?.toString(), prefs.activeWindow.endMinutes)
+        if (endMinutes <= startMinutes) {
+            Toast.makeText(this, R.string.time_window_invalid_error, Toast.LENGTH_SHORT).show()
+            return
+        }
+
         prefs.rideCode = binding.etRideCode.text?.toString().orEmpty()
         prefs.nickname = binding.etNickname.text?.toString().orEmpty()
         prefs.showNickname = binding.switchShowNickname.isChecked
@@ -297,11 +250,10 @@ class SettingsActivity : AppCompatActivity() {
         prefs.locationUpdateIntervalSeconds = binding.seekLocationUpdateInterval.progress
         prefs.corroborationRadiusMeters = binding.seekCorroborationRadius.progress
         prefs.historyEnabled = binding.switchHistoryEnabled.isChecked
-        prefs.privateCarDurationMinutes = binding.etPrivateCarDuration.text?.toString()?.toIntOrNull() ?: prefs.privateCarDurationMinutes
         prefs.alertSoundDurationSeconds = binding.etAlertSoundDuration.text?.toString()?.toIntOrNull() ?: prefs.alertSoundDurationSeconds
         prefs.tripDurationMinutes = binding.etTripDuration.text?.toString()?.toIntOrNull() ?: prefs.tripDurationMinutes
         prefs.safetyMarginMinutes = binding.etSafetyMargin.text?.toString()?.toIntOrNull() ?: prefs.safetyMarginMinutes
-        prefs.activeWindows = pendingTimeWindows.toList()
+        prefs.activeWindow = TimeWindow(startMinutes, endMinutes)
 
         val days = mutableSetOf<Int>()
         addDayIfChecked(days, binding.cbSunday, Calendar.SUNDAY)

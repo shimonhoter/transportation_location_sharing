@@ -19,6 +19,7 @@ import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.service.RideSessionState
 import com.shimonhoter.ridelocationshare.ui.UiKit
 import com.shimonhoter.ridelocationshare.ui.loadRideMap
+import com.shimonhoter.ridelocationshare.util.ActiveWindow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -60,13 +61,6 @@ class MainActivity : AppCompatActivity() {
             centerLon = center?.lon ?: 34.7818
         )
 
-        binding.btnBroadcastToggle.setOnClickListener {
-            if (RideSessionState.isThisDeviceBroadcasting.value == true) {
-                BroadcastService.stop(this)
-            } else {
-                BroadcastService.startManualBroadcast(this)
-            }
-        }
         binding.btnPrivateCar.setOnClickListener { togglePrivateCarMode() }
         binding.btnSettings.setOnClickListener {
             startActivity(android.content.Intent(this, SettingsActivity::class.java))
@@ -75,6 +69,15 @@ class MainActivity : AppCompatActivity() {
             startActivity(android.content.Intent(this, AlertZonesActivity::class.java))
         }
         binding.btnHelp.setOnClickListener { showHelp() }
+
+        // Don't make the user wait for the next ~15-minute RideCheckWorker
+        // tick — if automation is currently allowed to run at all, start
+        // monitoring the moment the app is opened. This only arms the
+        // geofence/movement check; BroadcastService still decides whether to
+        // actually start broadcasting (and still enforces private car mode).
+        if (ActiveWindow.isNowActive(prefs)) {
+            BroadcastService.startAutomatic(this)
+        }
 
         renderPrivateCarToggle()
         schedulePrivateCarAutoOffRefresh()
@@ -130,25 +133,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * The round toggle button is the single source of truth for "is THIS
-     * device broadcasting" — its icon (bus when off, antenna when on) and
-     * color always match RideSessionState.isThisDeviceBroadcasting, whether
-     * that changed because the user tapped it or because BroadcastService
-     * started/stopped broadcasting automatically. A toast fires only on an
-     * actual change (never on the initial value delivered when the observer
-     * attaches). Disabled outright while private car mode blocks
-     * broadcasting, so a tap can't do anything the service would just
-     * reject anyway.
+     * A pure status indicator now, not a control — there's no tap handler on
+     * it (see onCreate). Always shows the antenna icon; a red "blocked"
+     * overlay appears whenever this device isn't currently broadcasting, for
+     * any reason (private car mode, outside the geofence/movement start
+     * condition, or the safety-timer/time-window stop) so a single glance
+     * always answers "is my location going out right now". A toast fires
+     * only on an actual change (never on the initial value delivered when
+     * the observer attaches).
      */
     private fun renderBroadcastToggle(isBroadcasting: Boolean) {
-        binding.btnBroadcastToggle.text = getString(
-            if (isBroadcasting) R.string.broadcast_toggle_icon_on else R.string.broadcast_toggle_icon_off
-        )
         binding.btnBroadcastToggle.backgroundTintList =
             ColorStateList.valueOf(UiKit.statusColor(this, isBroadcasting))
-        val privateCarActive = prefs.isPrivateCarActive()
-        binding.btnBroadcastToggle.isEnabled = !privateCarActive
-        binding.btnBroadcastToggle.alpha = if (privateCarActive) 0.5f else 1f
+        binding.tvBroadcastBlockedOverlay.visibility = if (isBroadcasting) View.GONE else View.VISIBLE
 
         if (lastRenderedBroadcasting != null && lastRenderedBroadcasting != isBroadcasting) {
             val message = if (isBroadcasting) R.string.broadcast_started_message else R.string.broadcast_stopped_message
@@ -196,7 +193,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderRideLocation(location: RideLocation) {
         if (!mapReady) return
-        binding.webViewMap.evaluateJavascript("updateRideLocation(${location.lat}, ${location.lon})", null)
+        // headingDegrees is the circular mean of the contributing devices'
+        // own GPS bearings (see FirebaseLocationRepository.aggregate) —
+        // passed straight through rather than derived on the map side from
+        // consecutive aggregate fixes, which broke down once more than one
+        // device was broadcasting (the averaged point can shift sideways as
+        // the contributing set changes, unrelated to the ride's actual
+        // heading).
+        val heading = location.headingDegrees?.toString() ?: "null"
+        binding.webViewMap.evaluateJavascript("updateRideLocation(${location.lat}, ${location.lon}, $heading)", null)
     }
 
     /**

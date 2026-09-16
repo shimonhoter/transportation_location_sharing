@@ -41,8 +41,10 @@ location" action required in normal operation).
 - **Nickname is a static label only**, never an event message like "now
   broadcasting: X" — switching broadcasters must never indirectly reveal
   where someone got off. Default is no nickname at all.
-- **Manual fallback** ("Broadcast now" / "I got off") for when automation
-  fails (revoked permissions, aggressive battery optimization, etc.).
+- **No manual broadcast control.** Starting and stopping broadcasting is
+  entirely automatic (geofence/movement condition, safety timer, "private
+  car" opt-out); the main screen's round button is a status indicator only
+  (see 3.6), not a way to force a start or stop.
 
 ## 3. Features
 
@@ -62,22 +64,21 @@ per-device history).
 - **Soft secondary signal:** route-deviation detection may flag that the
   ride seems off the usual path, but never autonomously stops broadcasting
   by itself.
-- **Manual stop:** "I got off" ends broadcasting for that device
-  immediately.
-- **Manual opt-out:** "Private car" (main screen) blocks both the
-  automatic start condition and the manual "Broadcast now" override, for
-  a passenger who isn't on the shared ride today (or just found out they
-  aren't) instead of taking it as usual — the one case speed/movement
-  alone cannot distinguish from actually being in the shared ride (see
-  4.2's corroboration note). See 3.6 for the full behavior.
+- **Manual opt-out:** "Private car" (main screen) blocks the automatic
+  start condition entirely, for a passenger who isn't on the shared ride
+  today (or just found out they aren't) instead of taking it as usual —
+  the one case speed/movement alone cannot distinguish from actually being
+  in the shared ride (see 4.2's corroboration note). See 3.6 for the full
+  behavior.
+- **Immediate check on app open:** rather than only re-evaluating on the
+  next ~15-minute `RideCheckWorker` tick (3.8), `MainActivity` also starts
+  automatic monitoring the moment the app is opened, if the active
+  day/window condition (3.3) currently allows it.
 
-### 3.3 Active days and time windows
+### 3.3 Active days and time window
 Each user configures which weekdays the automation is allowed to run on,
-plus one or more daily active time windows (e.g. a morning-commute window
-AND a separate evening-return window) — ANY configured window matching is
-enough to activate automation. Windows can be added, edited, and deleted
-from the Settings screen; at least one must always remain. Outside the
-configured days/windows, WorkManager checks are no-ops.
+plus a single daily active time window (start and end time) — outside the
+configured days/window, WorkManager checks are no-ops.
 
 ### 3.4 Per-user settings
 - Ride code (free text, e.g. the bus line number) — scopes which shared
@@ -88,7 +89,7 @@ configured days/windows, WorkManager checks are no-ops.
 - Personal origin and destination locations.
 - Geofence radius.
 - Expected trip duration / time-window margins.
-- Active weekdays.
+- Active weekdays and the single daily active time window.
 - Local ETA history toggle (`Prefs.historyEnabled`), off by default; see
   4.5.
 
@@ -111,34 +112,31 @@ the zone coordinates stored locally — the server never sees zone
 definitions. An "already alerted" flag per zone prevents repeat
 notifications within the same ride, and resets when the ride ends.
 
-### 3.6 Manual overrides
-Two round buttons float directly on the map, bottom-center (no card
+### 3.6 Broadcast indicator and manual opt-out
+Two round elements float directly on the map, bottom-center (no card
 background — see 6):
 
-- **Broadcast toggle (center, larger)** — replaces what were originally two
-  separate buttons. Shows a bus icon while off; tapping it force-starts
-  broadcasting immediately, bypassing the movement/geofence start condition
-  ("Broadcast now"). Shows a green antenna icon while on; tapping it
-  force-stops broadcasting immediately ("I got off"). Its icon and color
-  always reflect `RideSessionState.isThisDeviceBroadcasting` regardless of
-  what changed it — a tap, or BroadcastService starting/stopping
-  broadcasting automatically per the geofence/movement or safety-timer
-  conditions — and a short toast ("Broadcasting started"/"stopped") fires
-  on every actual transition. Both directions go through a single,
-  well-defined service call (a known bug in early builds fired two
-  separate/racing service-start calls, causing intermittent failures).
-  Disabled (dimmed) while private car mode (below) is active.
+- **Broadcast indicator (center, larger)** — a status indicator only, not a
+  control (not clickable, no tap handler). Always shows an antenna icon,
+  green while `RideSessionState.isThisDeviceBroadcasting` is true. Whenever
+  it's false — for any reason: private car mode, the movement/geofence
+  start condition not yet met, or an automatic stop (safety timer, outside
+  the active window) — a red "blocked" badge is overlaid on the antenna, so
+  a single glance always answers "is my location going out right now",
+  regardless of why it isn't. A short toast ("Broadcasting started"/"Not
+  broadcasting location") fires on every actual transition.
 - **"Private car"** — a 🏠 icon button, orange when active, off by default.
   Tapping it while off immediately stops any broadcast already in progress
   from this device (if one is active) and then blocks **both** automatic
-  and manual broadcasting entirely. Auto-reverts to off after
-  `Prefs.privateCarDurationMinutes` (Settings screen, default 120 minutes)
-  — or immediately on a second tap. Covers both a passenger who knows in
-  advance they're taking their own vehicle instead of the shared ride, and
-  one who only realizes it in the moment (`BroadcastService` enforces this
-  at both `checkAutoStartCondition` and the `ACTION_MANUAL_BROADCAST`
-  handler, so it holds even if the manual toggle were tapped some other
-  way).
+  and manual broadcasting entirely. Auto-reverts to off at the end of
+  today's active time window (3.3) — or immediately on a second tap; falls
+  back to `RideConfig.DEFAULT_PRIVATE_CAR_DURATION_MINUTES` (120 minutes)
+  if today isn't an active day or the window has already ended when
+  activated. Covers both a passenger who knows in advance they're taking
+  their own vehicle instead of the shared ride, and one who only realizes
+  it in the moment (`BroadcastService` enforces this at
+  `checkAutoStartCondition`, so it holds regardless of what else might try
+  to start a broadcast).
 
 ### 3.7 Permissions onboarding
 On first run, the app walks the user through a full permission sequence in
@@ -187,10 +185,11 @@ operation.
 - **Data model:** each broadcasting device writes to its own child node,
   `rideLocation/rides/<rideCode>/devices/<uid>` (keyed by its Firebase
   Anonymous Auth UID, under a group-chosen ride code — see "Ride code"
-  below), holding `{lat, lon, speedKmh, nickname, updatedAt, lastMovingAt}`.
-  There is no single shared value and no history — a device only ever
-  holds its own latest sample, overwritten on every write, and removes its
-  own node outright when it stops broadcasting.
+  below), holding `{lat, lon, speedKmh, nickname, updatedAt, lastMovingAt,
+  heading}` (`heading` omitted when the device's GPS hasn't derived a
+  bearing yet). There is no single shared value and no history — a device
+  only ever holds its own latest sample, overwritten on every write, and
+  removes its own node outright when it stops broadcasting.
 - **Ride code (isolating unrelated groups):** every device using the app
   shares the same Firebase project, so nothing stops a second, unrelated
   group — a different bus line, say — from also running it. `Prefs.rideCode`
@@ -240,10 +239,21 @@ operation.
     out of the grace window.
   Broadcasting itself is never speed-gated; a device keeps posting on
   every fix for as long as it's broadcasting, and only stops via the
-  safety timer, geofence auto-stop, or the manual "I got off" (docs
-  section 3.2/3.6) — the grace-window exclusion only affects whether that
-  device's samples are counted in the aggregate, not whether it keeps
-  transmitting.
+  safety timer or geofence/time-window condition (docs section 3.2) — the
+  grace-window exclusion only affects whether that device's samples are
+  counted in the aggregate, not whether it keeps transmitting.
+- **Direction of travel:** the map's direction arrow is driven by
+  `RideLocation.headingDegrees`, the circular mean of the `chosen` devices'
+  own GPS-reported bearings (`Location.bearing`, posted as `heading` when
+  available) — not a bearing derived from consecutive aggregate fixes. The
+  aggregate's lat/lon is an average across whichever devices currently
+  qualify, and that set can change between updates; with two or more
+  broadcasters, the averaged point can shift sideways in a way unrelated to
+  the ride's actual heading, which made a from-fixes calculation unreliable
+  once more than one device was moving (a bug: the arrow pointed correctly
+  with a single broadcaster but became erratic as soon as a second one
+  joined). `null` when no contributing device has reported a bearing yet;
+  the map falls back to its own from-fixes calculation only in that case.
 - **Corroboration (telling the shared ride apart from a passenger's own
   car):** speed and movement alone cannot distinguish a passenger driving
   their own private vehicle from the origin from actually being in the
@@ -356,13 +366,13 @@ in the settings screen.
   entirely through the round buttons themselves (icon + color), never
   duplicated as separate overlapping messages.
 - This device's own broadcasting state has exactly one indicator: the
-  round broadcast toggle button, whose icon swaps between a bus (off) and
-  a transmitting antenna (on) and whose color follows `status_active`
-  green when on / `status_idle` gray when off — no separate text badge
-  duplicates it. It's disabled and dimmed whenever "private car" mode
-  blocks broadcasting. The "private car" button follows the same
-  round-icon language: `brand_accent` (highlighted) when active,
-  `status_idle` (faded) when off.
+  round broadcast indicator, a non-interactive status display (not a
+  button) always showing an antenna icon, colored `status_active` green
+  while broadcasting or `status_idle` gray with a red "blocked" badge
+  overlaid whenever it isn't, for any reason — no separate text badge
+  duplicates it. The "private car" button follows the same round-icon
+  language: `brand_accent` (highlighted) when active, `status_idle`
+  (faded) when off.
 - Full-screen permission onboarding flow shown on install (see 3.7).
 - The map auto-centers on the ride's location on every update, on by
   default at every app launch; a toggle control on the map (view mode

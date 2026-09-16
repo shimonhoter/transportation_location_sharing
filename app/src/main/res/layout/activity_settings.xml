@@ -210,17 +210,39 @@
                     android:textStyle="bold" />
 
                 <LinearLayout
-                    android:id="@+id/llTimeWindows"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical" />
+                    android:orientation="horizontal">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnAddTimeWindow"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/add_time_window_button" />
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="@dimen/spacing_sm"
+                        android:hint="@string/active_window_start_label">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etWindowStart"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:focusable="false"
+                            android:clickable="true" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="@string/active_window_end_label">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etWindowEnd"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:focusable="false"
+                            android:clickable="true" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -316,35 +338,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/clear_history_button" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <com.google.android.material.card.MaterialCardView style="@style/RideCard">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="@dimen/spacing_md">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="@dimen/spacing_xs"
-                    android:text="@string/private_car_duration_hint"
-                    android:textColor="@color/on_surface_muted"
-                    android:textSize="@dimen/text_size_caption" />
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="@string/private_car_duration_label">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/etPrivateCarDuration"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="number" />
-                </com.google.android.material.textfield.TextInputLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

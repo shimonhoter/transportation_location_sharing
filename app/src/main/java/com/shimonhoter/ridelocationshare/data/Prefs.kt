@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.shimonhoter.ridelocationshare.config.RideConfig
 import org.json.JSONArray
+import java.util.Calendar
 
 /**
  * All per-user settings and local ride state. Everything here stays on the
@@ -47,25 +48,16 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_SAFETY_MARGIN, 20)
         set(value) = sp.edit().putInt(KEY_SAFETY_MARGIN, value).apply()
 
-    /** One or more daily active windows (minutes since midnight); ANY match activates automation. */
-    var activeWindows: List<TimeWindow>
-        get() {
-            val raw = sp.getString(KEY_ACTIVE_WINDOWS, null)
-            if (raw != null) {
-                val array = JSONArray(raw)
-                return (0 until array.length()).map { TimeWindow.fromJson(array.getJSONObject(it)) }
-            }
-            // Migrate a pre-existing single window from before multi-window support, if any.
-            if (sp.contains(KEY_WINDOW_START) && sp.contains(KEY_WINDOW_END)) {
-                return listOf(TimeWindow("default", sp.getInt(KEY_WINDOW_START, 5 * 60 + 30), sp.getInt(KEY_WINDOW_END, 8 * 60 + 30)))
-            }
-            return listOf(TimeWindow("default", 5 * 60 + 30, 8 * 60 + 30))
-        }
-        set(value) {
-            val array = JSONArray()
-            value.forEach { array.put(it.toJson()) }
-            sp.edit().putString(KEY_ACTIVE_WINDOWS, array.toString()).apply()
-        }
+    /** The single daily active window (minutes since midnight) automation is allowed to run in. */
+    var activeWindow: TimeWindow
+        get() = TimeWindow(
+            sp.getInt(KEY_WINDOW_START, 5 * 60 + 30),
+            sp.getInt(KEY_WINDOW_END, 8 * 60 + 30)
+        )
+        set(value) = sp.edit()
+            .putInt(KEY_WINDOW_START, value.startMinutes)
+            .putInt(KEY_WINDOW_END, value.endMinutes)
+            .apply()
 
     /** java.util.Calendar.DAY_OF_WEEK values (1=Sunday..7=Saturday). Default Sun-Thu. */
     var activeDays: Set<Int>
@@ -112,11 +104,6 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_HISTORY_ENABLED, false)
         set(value) = sp.edit().putBoolean(KEY_HISTORY_ENABLED, value).apply()
 
-    /** How long activating "private car" mode blocks broadcasting for, in minutes, before it auto-reverts. User-configurable via Settings. */
-    var privateCarDurationMinutes: Int
-        get() = sp.getInt(KEY_PRIVATE_CAR_DURATION, RideConfig.DEFAULT_PRIVATE_CAR_DURATION_MINUTES)
-        set(value) = sp.edit().putInt(KEY_PRIVATE_CAR_DURATION, value).apply()
-
     private var privateCarActiveUntilMillis: Long
         get() = sp.getLong(KEY_PRIVATE_CAR_UNTIL, 0L)
         set(value) = sp.edit().putLong(KEY_PRIVATE_CAR_UNTIL, value).apply()
@@ -124,8 +111,27 @@ class Prefs(context: Context) {
     /** While active, neither automatic nor manual broadcasting is allowed from this device (a passenger who took their own private car instead of the shared ride). */
     fun isPrivateCarActive(now: Long = System.currentTimeMillis()): Boolean = privateCarActiveUntilMillis > now
 
+    /**
+     * Auto-reverts at the end of today's broadcast window rather than a
+     * fixed duration — there's no point staying in "private car" mode past
+     * the point the shared ride itself stops being tracked. Falls back to
+     * [RideConfig.DEFAULT_PRIVATE_CAR_DURATION_MINUTES] if today isn't an
+     * active day, or the window has already ended (activated after hours).
+     */
     fun activatePrivateCarMode(now: Long = System.currentTimeMillis()) {
-        privateCarActiveUntilMillis = now + privateCarDurationMinutes * 60_000L
+        val cal = Calendar.getInstance().apply { timeInMillis = now }
+        if (cal.get(Calendar.DAY_OF_WEEK) in activeDays) {
+            val window = activeWindow
+            cal.set(Calendar.HOUR_OF_DAY, window.endMinutes / 60)
+            cal.set(Calendar.MINUTE, window.endMinutes % 60)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            if (cal.timeInMillis > now) {
+                privateCarActiveUntilMillis = cal.timeInMillis
+                return
+            }
+        }
+        privateCarActiveUntilMillis = now + RideConfig.DEFAULT_PRIVATE_CAR_DURATION_MINUTES * 60_000L
     }
 
     fun deactivatePrivateCarMode() {
@@ -171,7 +177,6 @@ class Prefs(context: Context) {
         private const val KEY_SAFETY_MARGIN = "safety_margin"
         private const val KEY_WINDOW_START = "window_start"
         private const val KEY_WINDOW_END = "window_end"
-        private const val KEY_ACTIVE_WINDOWS = "active_windows"
         private const val KEY_ACTIVE_DAYS = "active_days"
         private const val KEY_ALERT_ZONES = "alert_zones"
         private const val KEY_ALERTED_ZONE_IDS = "alerted_zone_ids"
@@ -180,7 +185,6 @@ class Prefs(context: Context) {
         private const val KEY_LOCATION_UPDATE_INTERVAL = "location_update_interval_seconds"
         private const val KEY_CORROBORATION_RADIUS = "corroboration_radius"
         private const val KEY_HISTORY_ENABLED = "history_enabled"
-        private const val KEY_PRIVATE_CAR_DURATION = "private_car_duration_minutes"
         private const val KEY_PRIVATE_CAR_UNTIL = "private_car_active_until"
         private const val KEY_ALERT_SOUND_DURATION = "alert_sound_duration_seconds"
 

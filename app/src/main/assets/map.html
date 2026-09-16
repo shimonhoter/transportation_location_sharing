@@ -260,17 +260,27 @@
 
     // --- Functions called from Kotlin via evaluateJavascript ---
 
-    function updateRideLocation(lat, lon) {
+    // reportedHeading, when given, is the circular mean of the contributing
+    // devices' own GPS bearings (computed natively in
+    // FirebaseLocationRepository.aggregate) and is always preferred over
+    // deriving a heading from consecutive aggregate fixes here: with two or
+    // more devices broadcasting, which devices qualify for the aggregate can
+    // change from one update to the next, so the averaged point can shift
+    // sideways in a way that has nothing to do with the ride's actual
+    // direction of travel — the from-fixes calculation below is only a
+    // fallback for when no device has reported a bearing yet (e.g. not
+    // moving fast enough for GPS to derive one).
+    function updateRideLocation(lat, lon, reportedHeading) {
       if (!rideMarker) {
         rideMarker = new maplibregl.Marker({ element: createRideMarkerElement() }).setLngLat([lon, lat]).addTo(map);
       } else {
         rideMarker.setLngLat([lon, lat]);
       }
-      var heading = null;
-      if (lastRideLatLon) {
+      var heading = (typeof reportedHeading === 'number') ? reportedHeading : null;
+      if (heading === null && lastRideLatLon) {
         heading = bearingDegrees(lastRideLatLon[0], lastRideLatLon[1], lat, lon);
-        lastHeading = heading;
       }
+      if (heading !== null) lastHeading = heading;
       lastRideLatLon = [lat, lon];
 
       // In rotation mode the map itself turns to face the direction of

@@ -43,10 +43,8 @@ import kotlinx.coroutines.launch
  * and separately listens for the shared ride location for the UI and for
  * on-device alert-zone checks (docs/SPEC_EN.md sections 3.1-3.6).
  *
- * Every caller must go through [startAutomatic], [startManualBroadcast] or
- * [stop] — a single call path per action. An earlier version fired two
- * separate/racing service-start calls for the manual button, which caused
- * intermittent failures (see docs' bug log, entry 9).
+ * Every caller must go through [startAutomatic] or [stop] — a single call
+ * path per action.
  */
 class BroadcastService : Service() {
 
@@ -107,7 +105,6 @@ class BroadcastService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_MANUAL_BROADCAST -> if (!prefs.isPrivateCarActive()) beginBroadcasting()
             ACTION_AUTO_START -> Unit // fall through to ensure monitoring below
             ACTION_REFRESH_SETTINGS -> applyRefreshedSettings()
         }
@@ -179,9 +176,14 @@ class BroadcastService : Service() {
             if (speedKmh > RideConfig.MOVING_SPEED_THRESHOLD_KMH) {
                 lastMovingAtMillis = System.currentTimeMillis()
             }
+            // GPS-reported direction of travel, when available — this device's
+            // own contribution to the aggregate's direction arrow (see
+            // FirebaseLocationRepository.aggregate), independent of how the
+            // averaged position itself moves between fixes.
+            val headingDegrees = if (location.hasBearing()) location.bearing.toDouble() else null
             val rideCode = prefs.rideCode
             serviceScope.launch {
-                locationRepository.postLocation(rideCode, location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis)
+                locationRepository.postLocation(rideCode, location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis, headingDegrees)
             }
 
             if (System.currentTimeMillis() >= rideEndDeadlineMillis()) {
@@ -286,7 +288,6 @@ class BroadcastService : Service() {
         private const val NOTIFICATION_ID = 1001
 
         private const val ACTION_AUTO_START = "com.shimonhoter.ridelocationshare.action.AUTO_START"
-        private const val ACTION_MANUAL_BROADCAST = "com.shimonhoter.ridelocationshare.action.MANUAL_BROADCAST"
         private const val ACTION_STOP = "com.shimonhoter.ridelocationshare.action.STOP"
         private const val ACTION_REFRESH_SETTINGS = "com.shimonhoter.ridelocationshare.action.REFRESH_SETTINGS"
 
@@ -298,7 +299,6 @@ class BroadcastService : Service() {
             private set
 
         fun startAutomatic(context: Context) = dispatch(context, ACTION_AUTO_START)
-        fun startManualBroadcast(context: Context) = dispatch(context, ACTION_MANUAL_BROADCAST)
         fun stop(context: Context) = dispatch(context, ACTION_STOP)
 
         /** Applies changed Settings (location update interval, trip duration,
