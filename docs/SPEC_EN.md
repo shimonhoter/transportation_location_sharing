@@ -167,7 +167,11 @@ directly to the app's system settings screen.
 A WorkManager periodic job runs roughly every 15 minutes, checks whether
 "now" falls inside an active day/time window, and if so starts the
 broadcast service automatically — no button press required in normal
-operation.
+operation. In addition, `BootReceiver` listens for the system's
+`BOOT_COMPLETED` broadcast and runs the same check immediately when the
+device finishes starting up, so the app resumes automatic background
+monitoring right after a phone reboot instead of waiting for the next
+periodic check or for the user to open the app manually.
 
 ## 4. Architecture & Technology
 
