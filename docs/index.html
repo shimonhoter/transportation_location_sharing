@@ -60,6 +60,49 @@
   #statusBar.broadcasting { color: #2E7D6B; font-weight: bold; }
   #statusBar.idle { color: #8A3B3B; }
   .maplibregl-ctrl-top-right { top: 70px; }
+  .zone-handle {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    border: 2px solid #C0392B;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+  .zone-handle-delete { border-color: #8A9490; font-size: 12px; }
+  #zoneAlertBanner {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 66px);
+    left: 10px;
+    right: 10px;
+    z-index: 6;
+    display: none;
+    background: #C0392B;
+    color: #FFFFFF;
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    text-align: center;
+    font-size: 15px;
+    font-weight: bold;
+  }
+  #zoneAlertBanner button {
+    display: block;
+    margin: 8px auto 0;
+    background: #FFFFFF;
+    color: #C0392B;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 18px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -68,6 +111,11 @@
 <div id="topBar">
   <input id="rideCodeInput" type="text" placeholder="קוד קבוצה (לדוגמה: מספר קו), ריק = ברירת מחדל" />
   <button id="connectBtn" type="button">התחבר</button>
+</div>
+
+<div id="zoneAlertBanner">
+  <div id="zoneAlertText"></div>
+  <button id="zoneAlertCloseBtn" type="button">סגור</button>
 </div>
 
 <div id="statusBar" class="idle">מתחבר…</div>
@@ -303,6 +351,292 @@
   RotationControl.prototype.onRemove = function () { this._container.parentNode.removeChild(this._container); };
   map.addControl(new RotationControl(), 'top-right');
 
+  // --- Personal alert zones (docs/SPEC_EN.md 3.5), kept purely local to
+  // this browser (localStorage) — same "the server never sees zone
+  // definitions" privacy principle as Prefs.alertZones on Android, just
+  // not synced between devices. Ported from the 📍 edit-mode control and
+  // drag handles in app/src/main/assets/map.html.
+  var ZONE_ALERT_SOUND_DURATION_SECONDS = 20;
+  var DEFAULT_ALERT_ZONE_RADIUS_METERS = 150;
+  var zoneStorageKey = 'ridePwaAlertZones';
+  var zoneSourceId = 'alert-zones';
+  var lastZones = [];
+  var zoneEditModeEnabled = false;
+  var zoneEditBtnEl = null;
+  var zoneEditHandles = {};
+  var liveZoneOverrides = {};
+  var alertedZoneIds = {};
+
+  function loadZones() {
+    try {
+      var raw = localStorage.getItem(zoneStorageKey);
+      lastZones = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      lastZones = [];
+    }
+  }
+
+  function saveZones() {
+    try { localStorage.setItem(zoneStorageKey, JSON.stringify(lastZones)); } catch (e) {}
+  }
+
+  function circlePolygon(lat, lon, radiusMeters, points) {
+    points = points || 48;
+    var coords = [];
+    var earthRadius = 6371000;
+    var latRad = lat * Math.PI / 180;
+    for (var i = 0; i <= points; i++) {
+      var angle = (i / points) * 2 * Math.PI;
+      var dx = radiusMeters * Math.cos(angle);
+      var dy = radiusMeters * Math.sin(angle);
+      var dLat = dy / earthRadius;
+      var dLon = dx / (earthRadius * Math.cos(latRad));
+      coords.push([lon + (dLon * 180 / Math.PI), lat + (dLat * 180 / Math.PI)]);
+    }
+    return { type: 'Polygon', coordinates: [coords] };
+  }
+
+  function destinationLatLon(lat, lon, distanceMeters, bearingDeg) {
+    var toRad = Math.PI / 180;
+    var earthRadius = 6371000;
+    var bearingRad = bearingDeg * toRad;
+    var latRad = lat * toRad;
+    var dx = distanceMeters * Math.sin(bearingRad);
+    var dy = distanceMeters * Math.cos(bearingRad);
+    var dLat = dy / earthRadius;
+    var dLon = dx / (earthRadius * Math.cos(latRad));
+    return [lat + (dLat * 180 / Math.PI), lon + (dLon * 180 / Math.PI)];
+  }
+
+  function applyStoredZones() {
+    var source = map.getSource(zoneSourceId);
+    if (!source) return;
+    var features = lastZones.map(function (zone) {
+      var geom = liveZoneOverrides[zone.id] || zone;
+      return { type: 'Feature', properties: { id: zone.id }, geometry: circlePolygon(geom.lat, geom.lon, geom.radiusMeters) };
+    });
+    source.setData({ type: 'FeatureCollection', features: features });
+    syncZoneEditHandles();
+  }
+
+  map.on('style.load', function () {
+    if (!map.getSource(zoneSourceId)) {
+      map.addSource(zoneSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({ id: zoneSourceId + '-fill', type: 'fill', source: zoneSourceId, paint: { 'fill-color': '#C0392B', 'fill-opacity': 0.2 } });
+      map.addLayer({ id: zoneSourceId + '-outline', type: 'line', source: zoneSourceId, paint: { 'line-color': '#C0392B', 'line-width': 2 } });
+    }
+    applyStoredZones();
+  });
+
+  map.on('click', function (e) {
+    if (!zoneEditModeEnabled) return;
+    var hits = map.queryRenderedFeatures(e.point, { layers: [zoneSourceId + '-fill'] });
+    if (hits && hits.length > 0) return;
+    lastZones.push({
+      id: 'zone_' + Date.now() + '_' + Math.round(Math.random() * 1000),
+      lat: e.lngLat.lat,
+      lon: e.lngLat.lng,
+      radiusMeters: DEFAULT_ALERT_ZONE_RADIUS_METERS
+    });
+    saveZones();
+    applyStoredZones();
+  });
+  map.on('dblclick', function () { if (zoneEditModeEnabled) exitZoneEditMode(); });
+
+  function ZoneEditControl() {}
+  ZoneEditControl.prototype.onAdd = function () {
+    var container = document.createElement('div');
+    container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.title = 'הוספה ועריכה של אזורי התראה (מקומי במכשיר זה)';
+    btn.textContent = '📍';
+    btn.style.opacity = '0.4';
+    btn.onclick = function () {
+      if (zoneEditModeEnabled) exitZoneEditMode(); else enterZoneEditMode();
+    };
+    zoneEditBtnEl = btn;
+    container.appendChild(btn);
+    this._container = container;
+    return container;
+  };
+  ZoneEditControl.prototype.onRemove = function () { this._container.parentNode.removeChild(this._container); };
+  map.addControl(new ZoneEditControl(), 'top-right');
+
+  function enterZoneEditMode() {
+    zoneEditModeEnabled = true;
+    if (zoneEditBtnEl) zoneEditBtnEl.style.opacity = '1';
+    if (autoCenterEnabled) autoCenterEnabled = false;
+    map.doubleClickZoom.disable();
+    syncZoneEditHandles();
+  }
+
+  function exitZoneEditMode() {
+    zoneEditModeEnabled = false;
+    if (zoneEditBtnEl) zoneEditBtnEl.style.opacity = '0.4';
+    Object.keys(zoneEditHandles).forEach(removeZoneEditHandlesForId);
+    liveZoneOverrides = {};
+    applyStoredZones();
+    map.doubleClickZoom.enable();
+    autoCenterEnabled = true;
+    if (rideMarker) map.easeTo({ center: rideMarker.getLngLat(), zoom: map.getZoom() });
+  }
+
+  function syncZoneEditHandles() {
+    if (!zoneEditModeEnabled) return;
+    var currentIds = {};
+    lastZones.forEach(function (zone) {
+      currentIds[zone.id] = true;
+      if (!zoneEditHandles[zone.id]) addZoneEditHandles(zone);
+    });
+    Object.keys(zoneEditHandles).forEach(function (id) {
+      if (!currentIds[id]) removeZoneEditHandlesForId(id);
+    });
+  }
+
+  function addZoneEditHandles(zone) {
+    var geom = { lat: zone.lat, lon: zone.lon, radiusMeters: zone.radiusMeters };
+
+    var centerEl = document.createElement('div');
+    centerEl.className = 'zone-handle';
+    centerEl.textContent = '✛';
+    var centerMarker = new maplibregl.Marker({ element: centerEl, draggable: true }).setLngLat([geom.lon, geom.lat]).addTo(map);
+
+    var edgeEl = document.createElement('div');
+    edgeEl.className = 'zone-handle';
+    edgeEl.textContent = '↔';
+    var edgeStart = destinationLatLon(geom.lat, geom.lon, geom.radiusMeters, 90);
+    var edgeMarker = new maplibregl.Marker({ element: edgeEl, draggable: true }).setLngLat([edgeStart[1], edgeStart[0]]).addTo(map);
+
+    var deleteEl = document.createElement('div');
+    deleteEl.className = 'zone-handle zone-handle-delete';
+    deleteEl.textContent = '🗑️';
+    var deleteStart = destinationLatLon(geom.lat, geom.lon, geom.radiusMeters, 0);
+    var deleteMarker = new maplibregl.Marker({ element: deleteEl }).setLngLat([deleteStart[1], deleteStart[0]]).addTo(map);
+    deleteEl.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      lastZones = lastZones.filter(function (z) { return z.id !== zone.id; });
+      delete alertedZoneIds[zone.id];
+      saveZones();
+      removeZoneEditHandlesForId(zone.id);
+      applyStoredZones();
+    });
+
+    function repositionEdgeMarker() {
+      var pos = destinationLatLon(geom.lat, geom.lon, geom.radiusMeters, 90);
+      edgeMarker.setLngLat([pos[1], pos[0]]);
+    }
+    function repositionDeleteMarker() {
+      var pos = destinationLatLon(geom.lat, geom.lon, geom.radiusMeters, 0);
+      deleteMarker.setLngLat([pos[1], pos[0]]);
+    }
+    function pushLiveOverride() {
+      liveZoneOverrides[zone.id] = { lat: geom.lat, lon: geom.lon, radiusMeters: geom.radiusMeters };
+      applyStoredZones();
+    }
+    function persist() {
+      var stored = lastZones.find(function (z) { return z.id === zone.id; });
+      if (stored) { stored.lat = geom.lat; stored.lon = geom.lon; stored.radiusMeters = geom.radiusMeters; }
+      saveZones();
+    }
+
+    centerMarker.on('drag', function () {
+      var lngLat = centerMarker.getLngLat();
+      geom.lat = lngLat.lat;
+      geom.lon = lngLat.lng;
+      repositionEdgeMarker();
+      repositionDeleteMarker();
+      pushLiveOverride();
+    });
+    centerMarker.on('dragend', persist);
+
+    edgeMarker.on('drag', function () {
+      var edgeLngLat = edgeMarker.getLngLat();
+      geom.radiusMeters = Math.max(20, distanceMeters(geom.lat, geom.lon, edgeLngLat.lat, edgeLngLat.lng));
+      repositionDeleteMarker();
+      pushLiveOverride();
+    });
+    edgeMarker.on('dragend', persist);
+
+    zoneEditHandles[zone.id] = { centerMarker: centerMarker, edgeMarker: edgeMarker, deleteMarker: deleteMarker };
+  }
+
+  function removeZoneEditHandlesForId(id) {
+    var handles = zoneEditHandles[id];
+    if (!handles) return;
+    handles.centerMarker.remove();
+    handles.edgeMarker.remove();
+    handles.deleteMarker.remove();
+    delete zoneEditHandles[id];
+    delete liveZoneOverrides[id];
+  }
+
+  // --- Zone alert: fires at most once per zone per ride (mirrors
+  // AlertZoneManager.check/resetForNewRide), with an on-screen banner +
+  // beep instead of a system notification, since this is a foreground-only
+  // web page, not an installed app with background permissions.
+  var zoneAlertBannerEl = document.getElementById('zoneAlertBanner');
+  var zoneAlertTextEl = document.getElementById('zoneAlertText');
+  var zoneAlertAudioCtx = null;
+  var zoneAlertBeepInterval = null;
+  var zoneAlertStopTimeout = null;
+
+  function playZoneAlertSound() {
+    stopZoneAlertSound();
+    try {
+      zoneAlertAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var beep = function () {
+        var osc = zoneAlertAudioCtx.createOscillator();
+        var gain = zoneAlertAudioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.value = 0.2;
+        osc.connect(gain);
+        gain.connect(zoneAlertAudioCtx.destination);
+        osc.start();
+        osc.stop(zoneAlertAudioCtx.currentTime + 0.3);
+      };
+      beep();
+      zoneAlertBeepInterval = setInterval(beep, 700);
+      zoneAlertStopTimeout = setTimeout(stopZoneAlertSound, ZONE_ALERT_SOUND_DURATION_SECONDS * 1000);
+    } catch (e) {}
+  }
+
+  function stopZoneAlertSound() {
+    if (zoneAlertBeepInterval) { clearInterval(zoneAlertBeepInterval); zoneAlertBeepInterval = null; }
+    if (zoneAlertStopTimeout) { clearTimeout(zoneAlertStopTimeout); zoneAlertStopTimeout = null; }
+    if (zoneAlertAudioCtx) { zoneAlertAudioCtx.close(); zoneAlertAudioCtx = null; }
+  }
+
+  function showZoneAlert(zoneName) {
+    zoneAlertTextEl.textContent = '🔔 ' + (zoneName ? ('ההסעה נכנסה לאזור "' + zoneName + '"') : 'ההסעה נכנסה לאזור שסימנת');
+    zoneAlertBannerEl.style.display = 'block';
+    playZoneAlertSound();
+  }
+
+  document.getElementById('zoneAlertCloseBtn').onclick = function () {
+    zoneAlertBannerEl.style.display = 'none';
+    stopZoneAlertSound();
+  };
+
+  function checkAlertZones(agg) {
+    if (!agg) {
+      // Ride ended (or went stale) — reset so the same zone can alert again next ride.
+      alertedZoneIds = {};
+      return;
+    }
+    lastZones.forEach(function (zone) {
+      if (alertedZoneIds[zone.id]) return;
+      var distance = distanceMeters(agg.lat, agg.lon, zone.lat, zone.lon);
+      if (distance <= zone.radiusMeters) {
+        alertedZoneIds[zone.id] = true;
+        showZoneAlert(zone.name);
+      }
+    });
+  }
+
+  loadZones();
+
   var rideMarker = null;
   var HEADING_MIN_MOVEMENT_METERS = 8;
   var lastHeadingRefLatLon = null;
@@ -400,6 +734,7 @@
       clearRideLocation();
     }
     renderStatus(agg);
+    checkAlertZones(agg);
   }
 
   // Re-evaluates staleness even when no new write has arrived (e.g. the
