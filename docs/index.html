@@ -25,6 +25,14 @@
     padding: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   }
+  #rideCodeLabel {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    font-weight: bold;
+    color: #333333;
+    white-space: nowrap;
+  }
   #rideCodeInput {
     flex: 1;
     border: 1px solid #CCCCCC;
@@ -34,6 +42,7 @@
     direction: rtl;
     text-align: right;
   }
+  #rideCodeInput:disabled { background: #F0F0F0; color: #777777; }
   #connectBtn {
     background: #2E7D6B;
     color: #FFFFFF;
@@ -144,7 +153,8 @@
 <div id="map"></div>
 
 <div id="topBar">
-  <input id="rideCodeInput" type="text" placeholder="קוד קבוצה (לדוגמה: מספר קו), ריק = ברירת מחדל" />
+  <label id="rideCodeLabel" for="rideCodeInput">מס' קו</label>
+  <input id="rideCodeInput" type="text" />
   <button id="connectBtn" type="button">התחבר</button>
 </div>
 
@@ -155,8 +165,8 @@
 
     <h3>🔝 שורה עליונה</h3>
     <ul>
-      <li><b>קוד קבוצה</b> — אותו קוד שהוגדר באפליקציית ה-Android (Settings → "קוד קבוצה"/"מספר קו"). ריק = מתחבר לברירת המחדל, בדיוק כמו באפליקציה.</li>
-      <li><b>התחבר</b> — מחבר מחדש לפי הקוד שהוזן (גם אם כבר מחוברים לקוד אחר).</li>
+      <li><b>מס' קו</b> — אותו קוד שהוגדר באפליקציית ה-Android (Settings → "קוד קבוצה"/"מספר קו"). ברירת המחדל בפתיחת הדף היא 35, והחיבור קורה אוטומטית. השדה נעול כל עוד מחוברים.</li>
+      <li><b>התחבר / התנתק</b> — באותו כפתור: "התחבר" מתחבר לקו שבשדה; לאחר החיבור הכפתור הופך ל"התנתק" — לחיצה עליו מנתקת ופותחת מחדש את השדה, כדי להזין קו אחר ולהתחבר אליו.</li>
     </ul>
 
     <h3>🚩 הסמן על המפה</h3>
@@ -839,24 +849,51 @@
   // broadcasting device lost network), so "משדר" doesn't linger forever.
   setInterval(refreshFromLastValue, 5000);
 
+  var DEFAULT_RIDE_CODE = '35';
   var rideCodeInput = document.getElementById('rideCodeInput');
   var connectBtn = document.getElementById('connectBtn');
+  var isConnected = false;
 
-  var savedCode = '';
-  try { savedCode = localStorage.getItem('ridePwaCode') || ''; } catch (e) {}
+  var savedCode = DEFAULT_RIDE_CODE;
+  try { savedCode = localStorage.getItem('ridePwaCode') || DEFAULT_RIDE_CODE; } catch (e) {}
   rideCodeInput.value = savedCode;
 
-  connectBtn.onclick = function () {
+  function setConnectedUi(connected) {
+    isConnected = connected;
+    rideCodeInput.disabled = connected;
+    connectBtn.textContent = connected ? 'התנתק' : 'התחבר';
+  }
+
+  function connectToRideCode() {
     var code = rideCodeInput.value;
     try { localStorage.setItem('ridePwaCode', code); } catch (e) {}
     attachRideCodeListener(code);
+    setConnectedUi(true);
+  }
+
+  function disconnectRideCode() {
+    if (currentListenerRef && currentListenerCallback) {
+      currentListenerRef.off('value', currentListenerCallback);
+    }
+    currentListenerRef = null;
+    currentListenerCallback = null;
+    lastDevicesValue = null;
+    clearRideLocation();
+    alertedZoneIds = {};
+    statusBarEl.className = 'idle';
+    statusBarEl.textContent = 'מנותק';
+    setConnectedUi(false);
+  }
+
+  connectBtn.onclick = function () {
+    if (isConnected) disconnectRideCode(); else connectToRideCode();
   };
   rideCodeInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') connectBtn.click();
+    if (e.key === 'Enter' && !isConnected) connectBtn.click();
   });
 
   auth.signInAnonymously().then(function () {
-    attachRideCodeListener(savedCode);
+    connectToRideCode();
   }).catch(function (err) {
     statusBarEl.className = 'idle';
     statusBarEl.textContent = 'שגיאת התחברות: ' + err.message;
