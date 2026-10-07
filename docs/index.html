@@ -103,6 +103,41 @@
     font-weight: bold;
     cursor: pointer;
   }
+  #helpOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: none;
+    background: rgba(0, 0, 0, 0.45);
+    padding: calc(env(safe-area-inset-top, 0px) + 20px) 16px calc(env(safe-area-inset-bottom, 0px) + 20px);
+    box-sizing: border-box;
+    overflow-y: auto;
+  }
+  #helpCard {
+    max-width: 480px;
+    margin: 0 auto;
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  }
+  #helpCard h2 { margin: 0 0 4px; font-size: 19px; color: #2E7D6B; }
+  #helpCard h3 { margin: 16px 0 4px; font-size: 15px; color: #2E7D6B; border-top: 1px solid #EEEEEE; padding-top: 12px; }
+  #helpCard p, #helpCard li { font-size: 14px; line-height: 1.5; color: #333333; }
+  #helpCard ul { margin: 4px 0; padding-inline-start: 20px; }
+  #helpCloseBtn {
+    display: block;
+    width: 100%;
+    margin-top: 18px;
+    background: #2E7D6B;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -111,6 +146,49 @@
 <div id="topBar">
   <input id="rideCodeInput" type="text" placeholder="קוד קבוצה (לדוגמה: מספר קו), ריק = ברירת מחדל" />
   <button id="connectBtn" type="button">התחבר</button>
+</div>
+
+<div id="helpOverlay">
+  <div id="helpCard">
+    <h2>❓ מדריך למסך</h2>
+    <p>הסבר לכל שדה וסמל בדף.</p>
+
+    <h3>🔝 שורה עליונה</h3>
+    <ul>
+      <li><b>קוד קבוצה</b> — אותו קוד שהוגדר באפליקציית ה-Android (Settings → "קוד קבוצה"/"מספר קו"). ריק = מתחבר לברירת המחדל, בדיוק כמו באפליקציה.</li>
+      <li><b>התחבר</b> — מחבר מחדש לפי הקוד שהוזן (גם אם כבר מחוברים לקוד אחר).</li>
+    </ul>
+
+    <h3>🚩 הסמן על המפה</h3>
+    <ul>
+      <li>המשולש הירוק הוא מיקום ההסעה המצטבר (ממוצע כל המכשירים המשדרים כרגע מ-Android) — זהה למה שמוצג במסך הראשי של האפליקציה. כיוון המשולש מצביע לכיוון הנסיעה.</li>
+    </ul>
+
+    <h3>🕹️ כפתורי המפה (מימין למעלה)</h3>
+    <ul>
+      <li><b>🗺️ / 🛰️</b> — החלפה בין מפת רחובות למפת לוויין.</li>
+      <li><b>🎯</b> — מרכוז אוטומטי: כשפעיל (צבע מלא), המפה עוקבת אחרי מיקום ההסעה; כבוי (עמום) משאיר את המפה איפה שהזזת אותה ידנית.</li>
+      <li><b>🧭</b> — סיבוב מפה בכיוון הנסיעה (כמו Waze); כבוי = צפון תמיד למעלה.</li>
+      <li><b>📍</b> — מצב עריכת אזורי התראה (ראו למטה).</li>
+    </ul>
+
+    <h3>📍 אזורי התראה</h3>
+    <ul>
+      <li>לחיצה על 📍 נכנסת למצב עריכה (הכפתור נדלק). לחיצה על המפה במצב הזה מוסיפה אזור עגול חדש.</li>
+      <li><b>✛</b> — גרירה מזיזה את מרכז האזור.</li>
+      <li><b>↔</b> — גרירה משנה את רדיוס האזור.</li>
+      <li><b>🗑️</b> — לחיצה מוחקת את האזור.</li>
+      <li>לחיצה כפולה על המפה יוצאת ממצב העריכה (או ללחוץ שוב על 📍).</li>
+      <li>כשההסעה נכנסת לאזור <u>והדף פתוח על המסך</u>, תופיע הודעה אדומה עם צפצוף. האזורים נשמרים רק בדפדפן הזה (לא נשלחים לשרת, ולא מסונכרנים עם ה-Android).</li>
+    </ul>
+
+    <h3>📶 שורת המצב התחתונה</h3>
+    <ul>
+      <li><b>🟢 משדר מיקום</b> — יש לפחות מכשיר Android אחד ששידורו פעיל כרגע, עם שם הנוסע (אם מוגדר) וזמן העדכון האחרון.</li>
+      <li><b>אין שידור מיקום פעיל כרגע</b> — אף מכשיר לא משדר (או שהנתון התיישן לפני יותר מ-90 שניות).</li>
+    </ul>
+    <button id="helpCloseBtn" type="button">סגור</button>
+  </div>
 </div>
 
 <div id="zoneAlertBanner">
@@ -462,6 +540,26 @@
   };
   ZoneEditControl.prototype.onRemove = function () { this._container.parentNode.removeChild(this._container); };
   map.addControl(new ZoneEditControl(), 'top-right');
+
+  function HelpControl() {}
+  HelpControl.prototype.onAdd = function () {
+    var container = document.createElement('div');
+    container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.title = 'מדריך למסך';
+    btn.textContent = '❓';
+    btn.onclick = function () { helpOverlayEl.style.display = 'block'; };
+    container.appendChild(btn);
+    this._container = container;
+    return container;
+  };
+  HelpControl.prototype.onRemove = function () { this._container.parentNode.removeChild(this._container); };
+  map.addControl(new HelpControl(), 'top-right');
+
+  var helpOverlayEl = document.getElementById('helpOverlay');
+  document.getElementById('helpCloseBtn').onclick = function () { helpOverlayEl.style.display = 'none'; };
+  helpOverlayEl.onclick = function (e) { if (e.target === helpOverlayEl) helpOverlayEl.style.display = 'none'; };
 
   function enterZoneEditMode() {
     zoneEditModeEnabled = true;
