@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="מיקום ההסעה" />
+<meta name="theme-color" content="#2E7D6B" />
+<title>מיקום ההסעה</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  html, body, #map { height: 100%; margin: 0; padding: 0; font-family: -apple-system, system-ui, sans-serif; }
+  #topBar {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    left: 10px;
+    right: 10px;
+    z-index: 5;
+    display: flex;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 10px;
+    padding: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+  #rideCodeInput {
+    flex: 1;
+    border: 1px solid #CCCCCC;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 15px;
+    direction: rtl;
+    text-align: right;
+  }
+  #connectBtn {
+    background: #2E7D6B;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #statusBar {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    left: 10px;
+    right: 10px;
+    z-index: 5;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 10px;
+    padding: 10px 14px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    font-size: 15px;
+    text-align: center;
+  }
+  #statusBar.broadcasting { color: #2E7D6B; font-weight: bold; }
+  #statusBar.idle { color: #8A3B3B; }
+  .maplibregl-ctrl-top-right { top: 70px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="topBar">
+  <input id="rideCodeInput" type="text" placeholder="קוד קבוצה (לדוגמה: מספר קו), ריק = ברירת מחדל" />
+  <button id="connectBtn" type="button">התחבר</button>
+</div>
+
+<div id="statusBar" class="idle">מתחבר…</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getDatabase, ref, onValue, off } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  // Same project the Android app writes to (see app/google-services.json and
+  // RideConfig.FIREBASE_DATABASE_URL) — this is a read-only viewer, it never
+  // writes its own location. The apiKey here is not a secret (Firebase's own
+  // security model relies on Realtime Database rules, not on hiding it); if
+  // reads ever fail with a permission/referrer error, check Google Cloud
+  // Console → Credentials for an API-key restriction limiting it to the
+  // Android app, and either lift it or register a dedicated Web app in the
+  // Firebase console for its own key.
+  const firebaseConfig = {
+    apiKey: "AIzaSyAaQTSw9GV3hX3rLAtMlJKE6sQBsBPew7A",
+    authDomain: "transportationlocationsharing.firebaseapp.com",
+    databaseURL: "https://transportationlocationsharing-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "transportationlocationsharing"
+  };
+
+  // Mirrors RideConfig.kt / FirebaseLocationRepository.aggregate() exactly,
+  // so this viewer shows the same aggregate location the Android app does.
+  const STALE_AFTER_SECONDS = 90.0;
+  const MOVING_SPEED_THRESHOLD_KMH = 7.0;
+  const RECENTLY_MOVING_GRACE_SECONDS = 90.0;
+  const DEFAULT_CORROBORATION_RADIUS_METERS = 300;
+  const FORBIDDEN_KEY_CHARS = ['.', '$', '#', '[', ']', '/'];
+
+  function sanitizeRideCode(raw) {
+    var cleaned = (raw || '').trim().split('').map(function (c) {
+      return FORBIDDEN_KEY_CHARS.indexOf(c) >= 0 ? '_' : c;
+    }).join('');
+    return cleaned === '' ? 'default' : cleaned;
+  }
+
+  function distanceMeters(lat1, lon1, lat2, lon2) {
+    var toRad = Math.PI / 180;
+    var earthRadius = 6371000;
+    var dLat = (lat2 - lat1) * toRad;
+    var dLon = (lon2 - lon1) * toRad;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function bearingDegrees(lat1, lon1, lat2, lon2) {
+    var toRad = Math.PI / 180;
+    var y = Math.sin((lon2 - lon1) * toRad) * Math.cos(lat2 * toRad);
+    var x = Math.cos(lat1 * toRad) * Math.sin(lat2 * toRad) -
+      Math.sin(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.cos((lon2 - lon1) * toRad);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+
+  function parseSample(uid, data, now) {
+    if (!data || typeof data.lat !== 'number' || typeof data.lon !== 'number' || typeof data.updatedAt !== 'number') return null;
+    var ageSeconds = (now - data.updatedAt) / 1000.0;
+    if (ageSeconds > STALE_AFTER_SECONDS) return null;
+    return {
+      lat: data.lat,
+      lon: data.lon,
+      speedKmh: typeof data.speedKmh === 'number' ? data.speedKmh : 0.0,
+      nickname: typeof data.nickname === 'string' ? data.nickname : null,
+      ageSeconds: ageSeconds,
+      lastMovingAtMillis: typeof data.lastMovingAt === 'number' ? data.lastMovingAt : 0
+    };
+  }
+
+  function aggregate(devicesValue, now, corroborationRadiusMeters) {
+    if (!devicesValue) return null;
+    var fresh = Object.keys(devicesValue).map(function (uid) {
+      return parseSample(uid, devicesValue[uid], now);
+    }).filter(function (s) { return s !== null; });
+    if (fresh.length === 0) return null;
+
+    var graceMillis = RECENTLY_MOVING_GRACE_SECONDS * 1000;
+    var hasEverMoved = fresh.filter(function (s) { return s.lastMovingAtMillis > 0; });
+    var recentlyMoving = hasEverMoved.filter(function (s) { return (now - s.lastMovingAtMillis) <= graceMillis; });
+
+    var corroborated = recentlyMoving.filter(function (candidate) {
+      return recentlyMoving.some(function (other) {
+        return other !== candidate && distanceMeters(candidate.lat, candidate.lon, other.lat, other.lon) <= corroborationRadiusMeters;
+      });
+    });
+
+    var chosen;
+    if (recentlyMoving.length === 1) {
+      chosen = recentlyMoving;
+    } else if (corroborated.length > 0) {
+      chosen = corroborated;
+    } else if (hasEverMoved.length < fresh.length) {
+      chosen = fresh;
+    } else {
+      return null;
+    }
+
+    var avgLat = chosen.reduce(function (sum, s) { return sum + s.lat; }, 0) / chosen.length;
+    var avgLon = chosen.reduce(function (sum, s) { return sum + s.lon; }, 0) / chosen.length;
+    var avgSpeedKmh = chosen.reduce(function (sum, s) { return sum + s.speedKmh; }, 0) / chosen.length;
+    var freshestAgeSeconds = Math.min.apply(null, chosen.map(function (s) { return s.ageSeconds; }));
+    var nickname = null;
+    for (var i = 0; i < chosen.length; i++) {
+      if (chosen[i].nickname) { nickname = chosen[i].nickname; break; }
+    }
+    return { lat: avgLat, lon: avgLon, nickname: nickname, ageSeconds: freshestAgeSeconds, avgSpeedKmh: avgSpeedKmh };
+  }
+
+  // --- Map setup (same free, keyless tile sources as app/src/main/assets/map.html) ---
+  var OPEN_FREE_MAP_STREETS_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+  var ESRI_SATELLITE_STYLE = {
+    version: 8,
+    sources: {
+      'esri-satellite': {
+        type: 'raster',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        attribution: 'Esri, Maxar, Earthstar Geographics'
+      }
+    },
+    layers: [{ id: 'esri-satellite-layer', type: 'raster', source: 'esri-satellite' }]
+  };
+  var currentStyleVariant = 'streets';
+
+  var map = new maplibregl.Map({
+    container: 'map',
+    style: OPEN_FREE_MAP_STREETS_STYLE,
+    center: [34.7818, 32.0853],
+    zoom: 13
+  });
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+  function StyleSwitcherControl() {}
+  StyleSwitcherControl.prototype.onAdd = function () {
+    var container = document.createElement('div');
+    container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    var streetsBtn = document.createElement('button');
+    streetsBtn.type = 'button';
+    streetsBtn.title = 'מפת רחובות';
+    streetsBtn.textContent = '🗺️';
+    streetsBtn.onclick = function () { setMapStyleVariant('streets'); };
+    var satelliteBtn = document.createElement('button');
+    satelliteBtn.type = 'button';
+    satelliteBtn.title = 'מפת לוויין';
+    satelliteBtn.textContent = '🛰️';
+    satelliteBtn.onclick = function () { setMapStyleVariant('satellite'); };
+    container.appendChild(streetsBtn);
+    container.appendChild(satelliteBtn);
+    this._container = container;
+    return container;
+  };
+  StyleSwitcherControl.prototype.onRemove = function () { this._container.parentNode.removeChild(this._container); };
+  map.addControl(new StyleSwitcherControl(), 'top-right');
+
+  function setMapStyleVariant(variant) {
+    if (variant === currentStyleVariant) return;
+    currentStyleVariant = variant;
+    map.setStyle(variant === 'satellite' ? ESRI_SATELLITE_STYLE : OPEN_FREE_MAP_STREETS_STYLE);
+  }
+
+  var autoCenterEnabled = true;
+  function AutoCenterControl() {}
+  AutoCenterControl.prototype.onAdd = function () {
+    var container = document.createElement('div');
+    container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.title = 'מרכוז אוטומטי על מיקום ההסעה';
+    btn.textContent = '🎯';
+    btn.style.opacity = '1';
+    btn.onclick = function () {
+      autoCenterEnabled = !autoCenterEnabled;
+      btn.style.opacity = autoCenterEnabled ? '1' : '0.4';
+      if (autoCenterEnabled && rideMarker) map.easeTo({ center: rideMarker.getLngLat(), zoom: map.getZoom() });
+    };
+    container.appendChild(btn);
+    this._container = container;
+    return container;
+  };
+  AutoCenterControl.prototype.onRemove = function () { this._container.parentNode.removeChild(this._container); };
+  map.addControl(new AutoCenterControl(), 'top-right');
+
+  var rotationEnabled = true;
+  var lastHeading = null;
+  function RotationControl() {}
+  RotationControl.prototype.onAdd = function () {
+    var container = document.createElement('div');
+    container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.title = 'סיבוב מפה בכיוון הנסיעה';
+    btn.textContent = '🧭';
+    btn.style.opacity = '1';
+    btn.onclick = function () {
+      rotationEnabled = !rotationEnabled;
+      btn.style.opacity = rotationEnabled ? '1' : '0.4';
+      var arrow = rideMarker ? rideMarker.getElement().querySelector('.ride-marker-arrow') : null;
+      if (rotationEnabled) {
+        if (arrow) arrow.style.transform = 'rotate(0deg)';
+        if (autoCenterEnabled && lastHeading !== null) map.easeTo({ bearing: lastHeading, duration: 500 });
+      } else {
+        map.easeTo({ bearing: 0, duration: 500 });
+        if (arrow && lastHeading !== null) arrow.style.transform = 'rotate(' + lastHeading + 'deg)';
+      }
+    };
+    container.appendChild(btn);
+    this._container = container;
+    return container;
+  };
+  RotationControl.prototype.onRemove = function () { this._container.parentNode.removeChild(this._container); };
+  map.addControl(new RotationControl(), 'top-right');
+
+  var rideMarker = null;
+  var HEADING_MIN_MOVEMENT_METERS = 8;
+  var lastHeadingRefLatLon = null;
+
+  function createRideMarkerElement() {
+    var el = document.createElement('div');
+    el.innerHTML =
+      '<svg width="30" height="30" viewBox="0 0 30 30">' +
+      '<g class="ride-marker-arrow" style="transform-origin:15px 15px;">' +
+      '<path d="M15 2 L26 26 L15 20 L4 26 Z" fill="#2E7D6B" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>' +
+      '</g></svg>';
+    return el;
+  }
+
+  function updateRideLocation(lat, lon) {
+    if (!rideMarker) {
+      rideMarker = new maplibregl.Marker({ element: createRideMarkerElement() }).setLngLat([lon, lat]).addTo(map);
+    } else {
+      rideMarker.setLngLat([lon, lat]);
+    }
+    if (!lastHeadingRefLatLon) {
+      lastHeadingRefLatLon = [lat, lon];
+    } else {
+      var movedMeters = distanceMeters(lastHeadingRefLatLon[0], lastHeadingRefLatLon[1], lat, lon);
+      if (movedMeters >= HEADING_MIN_MOVEMENT_METERS) {
+        lastHeading = bearingDegrees(lastHeadingRefLatLon[0], lastHeadingRefLatLon[1], lat, lon);
+        lastHeadingRefLatLon = [lat, lon];
+      }
+    }
+    var arrow = rideMarker.getElement().querySelector('.ride-marker-arrow');
+    if (arrow && lastHeading !== null) {
+      arrow.style.transform = 'rotate(' + (rotationEnabled ? 0 : lastHeading) + 'deg)';
+    }
+    if (autoCenterEnabled) {
+      var easeOpts = { center: [lon, lat], zoom: map.getZoom(), duration: 500 };
+      if (rotationEnabled && lastHeading !== null) easeOpts.bearing = lastHeading;
+      map.easeTo(easeOpts);
+    }
+  }
+
+  function clearRideLocation() {
+    if (rideMarker) { rideMarker.remove(); rideMarker = null; }
+    lastHeadingRefLatLon = null;
+    lastHeading = null;
+  }
+
+  // --- Status bar ---
+  var statusBarEl = document.getElementById('statusBar');
+  function renderStatus(agg) {
+    if (!agg) {
+      statusBarEl.className = 'idle';
+      statusBarEl.textContent = 'אין שידור מיקום פעיל כרגע';
+      return;
+    }
+    statusBarEl.className = 'broadcasting';
+    var who = agg.nickname ? (agg.nickname + ' · ') : '';
+    var ageText = agg.ageSeconds < 5 ? 'עכשיו' : ('לפני ' + Math.round(agg.ageSeconds) + ' שניות');
+    statusBarEl.textContent = '🟢 ' + who + 'משדר מיקום · עודכן ' + ageText;
+  }
+
+  // --- Firebase wiring ---
+  var app = initializeApp(firebaseConfig);
+  var auth = getAuth(app);
+  var database = getDatabase(app, firebaseConfig.databaseURL);
+
+  var currentListenerRef = null;
+  var currentListenerCallback = null;
+  var lastDevicesValue = null;
+
+  function attachRideCodeListener(rawCode) {
+    if (currentListenerRef && currentListenerCallback) {
+      off(currentListenerRef, 'value', currentListenerCallback);
+    }
+    clearRideLocation();
+    lastDevicesValue = null;
+    statusBarEl.className = 'idle';
+    statusBarEl.textContent = 'מתחבר…';
+
+    var sanitized = sanitizeRideCode(rawCode);
+    var devicesRef = ref(database, 'rideLocation/rides/' + sanitized + '/devices');
+    var callback = function (snapshot) {
+      lastDevicesValue = snapshot.val();
+      refreshFromLastValue();
+    };
+    onValue(devicesRef, callback);
+    currentListenerRef = devicesRef;
+    currentListenerCallback = callback;
+  }
+
+  function refreshFromLastValue() {
+    var agg = aggregate(lastDevicesValue, Date.now(), DEFAULT_CORROBORATION_RADIUS_METERS);
+    if (agg) {
+      updateRideLocation(agg.lat, agg.lon);
+    } else {
+      clearRideLocation();
+    }
+    renderStatus(agg);
+  }
+
+  // Re-evaluates staleness even when no new write has arrived (e.g. the
+  // broadcasting device lost network), so "משדר" doesn't linger forever.
+  setInterval(refreshFromLastValue, 5000);
+
+  var rideCodeInput = document.getElementById('rideCodeInput');
+  var connectBtn = document.getElementById('connectBtn');
+
+  var savedCode = '';
+  try { savedCode = localStorage.getItem('ridePwaCode') || ''; } catch (e) {}
+  rideCodeInput.value = savedCode;
+
+  connectBtn.onclick = function () {
+    var code = rideCodeInput.value;
+    try { localStorage.setItem('ridePwaCode', code); } catch (e) {}
+    attachRideCodeListener(code);
+  };
+  rideCodeInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') connectBtn.click();
+  });
+
+  signInAnonymously(auth).then(function () {
+    attachRideCodeListener(savedCode);
+  }).catch(function (err) {
+    statusBarEl.className = 'idle';
+    statusBarEl.textContent = 'שגיאת התחברות: ' + err.message;
+  });
+</script>
+</body>
+</html>
