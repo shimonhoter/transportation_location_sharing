@@ -72,10 +72,20 @@
 
 <div id="statusBar" class="idle">מתחבר…</div>
 
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getDatabase, ref, onValue, off } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+  // Plain classic scripts (Firebase's "compat" build, global `firebase`
+  // namespace) rather than type="module" + ES imports — opening this file
+  // directly from disk (file://, e.g. tapping it in the iPhone Files app)
+  // is exactly the one case where <script type="module"> silently refuses
+  // to run at all in Safari/Chrome (module fetches are blocked from a
+  // file:// origin), which previously meant NONE of this script ran, not
+  // just the Firebase part — including the MapLibre map setup below, which
+  // is why the map itself never appeared. Classic scripts have no such
+  // restriction and work identically whether this page is opened from disk
+  // or served over http(s).
 
   // Same project the Android app writes to (see app/google-services.json and
   // RideConfig.FIREBASE_DATABASE_URL) — this is a read-only viewer, it never
@@ -342,10 +352,10 @@
     statusBarEl.textContent = '🟢 ' + who + 'משדר מיקום · עודכן ' + ageText;
   }
 
-  // --- Firebase wiring ---
-  var app = initializeApp(firebaseConfig);
-  var auth = getAuth(app);
-  var database = getDatabase(app, firebaseConfig.databaseURL);
+  // --- Firebase wiring (compat API: firebase.initializeApp / firebase.auth() / firebase.database()) ---
+  firebase.initializeApp(firebaseConfig);
+  var auth = firebase.auth();
+  var database = firebase.database();
 
   var currentListenerRef = null;
   var currentListenerCallback = null;
@@ -353,7 +363,7 @@
 
   function attachRideCodeListener(rawCode) {
     if (currentListenerRef && currentListenerCallback) {
-      off(currentListenerRef, 'value', currentListenerCallback);
+      currentListenerRef.off('value', currentListenerCallback);
     }
     clearRideLocation();
     lastDevicesValue = null;
@@ -361,12 +371,12 @@
     statusBarEl.textContent = 'מתחבר…';
 
     var sanitized = sanitizeRideCode(rawCode);
-    var devicesRef = ref(database, 'rideLocation/rides/' + sanitized + '/devices');
+    var devicesRef = database.ref('rideLocation/rides/' + sanitized + '/devices');
     var callback = function (snapshot) {
       lastDevicesValue = snapshot.val();
       refreshFromLastValue();
     };
-    onValue(devicesRef, callback);
+    devicesRef.on('value', callback);
     currentListenerRef = devicesRef;
     currentListenerCallback = callback;
   }
@@ -401,7 +411,7 @@
     if (e.key === 'Enter') connectBtn.click();
   });
 
-  signInAnonymously(auth).then(function () {
+  auth.signInAnonymously().then(function () {
     attachRideCodeListener(savedCode);
   }).catch(function (err) {
     statusBarEl.className = 'idle';
