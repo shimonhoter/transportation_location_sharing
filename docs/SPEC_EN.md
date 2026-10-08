@@ -26,9 +26,9 @@ location" action required in normal operation).
   most recent update from whichever device sent it last. (A single
   designated broadcaster was tried and rejected: it "freezes" the shared
   location the moment that person exits mid-ride.)
-- **Broadcasting requires actual movement**, not just presence inside a
-  geofence — so a passenger who lives near the origin doesn't start
-  broadcasting from home.
+- **Broadcasting requires actual movement**, gated only by the active
+  day/time window — no origin geofence requirement; broadcasting can
+  start anywhere once the device is moving fast enough.
 - **A safety timer (expected arrival time + margin) is the primary stop
   condition**, not route matching — routes vary day to day. Route-deviation
   detection is only a soft, secondary signal.
@@ -42,7 +42,7 @@ location" action required in normal operation).
   broadcasting: X" — switching broadcasters must never indirectly reveal
   where someone got off. Default is no nickname at all.
 - **No manual broadcast control.** Starting and stopping broadcasting is
-  entirely automatic (geofence/movement condition, safety timer, "stay
+  entirely automatic (active window/speed condition, safety timer, "stay
   home" opt-out); the main screen's round button is a status indicator only
   (see 3.6), not a way to force a start or stop.
 
@@ -55,9 +55,10 @@ latest sample, regardless of which device sent it (last-write-wins, no
 per-device history).
 
 ### 3.2 Ride lifecycle
-- **Start condition:** device is within the origin geofence **and** has
-  moved more than a minimum displacement threshold — never movement alone,
-  and never geofence presence alone.
+- **Start condition:** the active day/time window (3.3) is currently in
+  effect **and** the device's speed exceeds
+  `RideConfig.MOVING_SPEED_THRESHOLD_KMH` — no origin/geofence requirement;
+  broadcasting can start from anywhere once moving fast enough.
 - **Stop condition (primary):** a safety timer set to the expected trip
   duration plus a safety margin. This is what actually ends broadcasting
   for a device, since exact routes vary daily.
@@ -255,11 +256,12 @@ periodic check or for the user to open the app manually.
     broadcasting, automatically or by mistake) from corrupting or becoming
     the sole reported ride location once their walking-pace samples age
     out of the grace window.
-  Broadcasting itself is never speed-gated; a device keeps posting on
-  every fix for as long as it's broadcasting, and only stops via the
-  safety timer or geofence/time-window condition (docs section 3.2) — the
-  grace-window exclusion only affects whether that device's samples are
-  counted in the aggregate, not whether it keeps transmitting.
+  Once broadcasting has started it is never speed-gated again; a device
+  keeps posting on every fix for as long as it's broadcasting, and only
+  stops via the safety timer or leaving the active time window (docs
+  section 3.2) — the grace-window exclusion only affects whether that
+  device's samples are counted in the aggregate, not whether it keeps
+  transmitting.
 - **Direction of travel:** the map's direction arrow and rotation follow the
   reported (aggregated) location's own progression between updates —
   `map.html`'s `bearingDegrees()` computed from consecutive fixes of

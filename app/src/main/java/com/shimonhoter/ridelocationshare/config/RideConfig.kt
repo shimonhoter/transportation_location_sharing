@@ -11,7 +11,6 @@ object RideConfig {
      */
     const val FIREBASE_DATABASE_URL = "https://transportationlocationsharing-default-rtdb.europe-west1.firebasedatabase.app"
 
-    const val MIN_MOVEMENT_METERS = 150.0
     const val WORK_CHECK_INTERVAL_MINUTES = 15L
 
     /** A ride location sample older than this is treated as "no active ride" (replaces the old server-side TTL). */

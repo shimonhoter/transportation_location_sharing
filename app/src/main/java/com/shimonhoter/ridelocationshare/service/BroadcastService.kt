@@ -29,7 +29,6 @@ import com.shimonhoter.ridelocationshare.data.Prefs
 import com.shimonhoter.ridelocationshare.remote.FirebaseLocationRepository
 import com.shimonhoter.ridelocationshare.util.ActiveWindow
 import com.shimonhoter.ridelocationshare.util.AppLog
-import com.shimonhoter.ridelocationshare.util.GeoUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -57,7 +56,6 @@ class BroadcastService : Service() {
     private var sharedLocationListener: ValueEventListener? = null
     private var sharedLocationListenerRideCode: String? = null
     private var isBroadcastingLocally = false
-    private var geofenceAnchor: Location? = null
     private var lastMovingAtMillis: Long = 0L
 
     override fun onCreate() {
@@ -195,26 +193,16 @@ class BroadcastService : Service() {
         }
     }
 
-    /** Start condition: inside the origin geofence AND has moved beyond the minimum threshold since. */
+    /** Start condition: moving faster than [RideConfig.MOVING_SPEED_THRESHOLD_KMH] —
+     * no longer gated on being near a configured origin point, so broadcasting
+     * can start anywhere, purely from the active window (this method is only
+     * reached while the service is running, which already requires the
+     * window to be active — see ActiveWindow.isNowActive callers) and speed. */
     private fun checkAutoStartCondition(location: Location) {
         if (prefs.isPrivateCarActive()) return
-        val origin = prefs.origin ?: return
-        val distanceFromOrigin = GeoUtil.distanceMeters(location.latitude, location.longitude, origin.lat, origin.lon)
-
-        if (distanceFromOrigin > prefs.geofenceRadiusMeters) {
-            geofenceAnchor = null
-            return
-        }
-
-        val anchor = geofenceAnchor
-        if (anchor == null) {
-            geofenceAnchor = location
-            return
-        }
-
-        val movedSinceAnchor = GeoUtil.distanceMeters(anchor.latitude, anchor.longitude, location.latitude, location.longitude)
-        if (movedSinceAnchor >= RideConfig.MIN_MOVEMENT_METERS) {
-            AppLog.i(TAG, "Movement threshold reached inside origin geofence, starting broadcast")
+        val speedKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
+        if (speedKmh > RideConfig.MOVING_SPEED_THRESHOLD_KMH) {
+            AppLog.i(TAG, "Movement threshold reached, starting broadcast")
             beginBroadcasting()
         }
     }
@@ -237,7 +225,6 @@ class BroadcastService : Service() {
 
     private fun stopBroadcasting() {
         isBroadcastingLocally = false
-        geofenceAnchor = null
         prefs.isBroadcasting = false
         RideSessionState.isThisDeviceBroadcasting.postValue(false)
         // Best-effort: drop this device out of the aggregate immediately rather
