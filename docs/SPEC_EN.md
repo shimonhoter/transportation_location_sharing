@@ -29,9 +29,10 @@ location" action required in normal operation).
 - **Broadcasting requires actual movement**, gated only by the active
   day/time window — no origin geofence requirement; broadcasting can
   start anywhere once the device is moving fast enough.
-- **A safety timer (expected arrival time + margin) is the primary stop
-  condition**, not route matching — routes vary day to day. Route-deviation
-  detection is only a soft, secondary signal.
+- **Two parallel stop conditions, whichever fires first**: a safety timer
+  (expected arrival time + margin) and sustained low speed (not route
+  matching — routes vary day to day). Route-deviation detection is only a
+  soft, secondary signal and never stops broadcasting by itself.
 - **"Active days" is a precondition** gating all automatic logic, so the
   app never activates on weekends/holidays.
 - **Privacy:** the server never stores route history — only the single
@@ -59,12 +60,14 @@ per-device history).
   effect **and** the device's speed exceeds
   `RideConfig.MOVING_SPEED_THRESHOLD_KMH` — no origin/geofence requirement;
   broadcasting can start from anywhere once moving fast enough.
-- **Stop condition (primary):** a safety timer set to the expected trip
-  duration plus a safety margin. This is what actually ends broadcasting
-  for a device, since exact routes vary daily.
-- **Soft secondary signal:** route-deviation detection may flag that the
-  ride seems off the usual path, but never autonomously stops broadcasting
-  by itself.
+- **Stop condition — two, checked in parallel, whichever triggers first:**
+  1. a safety timer set to the expected trip duration plus a safety margin;
+  2. sustained low speed — the device hasn't exceeded
+     `RideConfig.MOVING_SPEED_THRESHOLD_KMH` for longer than
+     `RideConfig.RECENTLY_MOVING_GRACE_SECONDS` (5 minutes) straight (a
+     passenger got off, or the ride has stopped for good). Both are checked
+     on every location fix in `BroadcastService.handleLocationUpdate`; the
+     safety timer is checked first but either one ends the broadcast.
 - **Manual opt-out:** "Stay home" (main screen) blocks the automatic
   start condition entirely, for a passenger who isn't on the shared ride
   today (or just found out they aren't) instead of taking it as usual —
@@ -75,6 +78,14 @@ per-device history).
   next ~15-minute `RideCheckWorker` tick (3.8), `MainActivity` also starts
   automatic monitoring the moment the app is opened, if the active
   day/window condition (3.3) currently allows it.
+- **Fast first check on (re)start:** a cold GPS fix can take far longer
+  than the configured update interval to arrive — noticeable right after
+  the service restarts from nothing (boot, a `RideCheckWorker` tick, or
+  reopening the app). `BroadcastService.ensureMonitoring()` also checks
+  the fused location provider's cached last-known location immediately
+  (if no older than 30s) alongside registering for live updates, so the
+  start condition can be evaluated right away instead of waiting for the
+  first live fix.
 
 ### 3.3 Active days and time window
 Each user configures which weekdays the automation is allowed to run on,
@@ -241,7 +252,7 @@ periodic check or for the user to open the app manually.
   reported speed exceeded `RideConfig.MOVING_SPEED_THRESHOLD_KMH` (7 km/h),
   reset to none at the start of every new broadcast session — and a device
   counts toward the aggregate if it is currently over that speed **or**
-  was within `RideConfig.RECENTLY_MOVING_GRACE_SECONDS` (90s). This grace
+  was within `RideConfig.RECENTLY_MOVING_GRACE_SECONDS` (5 minutes). This grace
   window is what keeps the ride on the map through a brief stop (a red
   light, momentary traffic) without instantaneous 0 km/h readings kicking
   everyone out of the aggregate. If no device currently qualifies:
@@ -256,12 +267,13 @@ periodic check or for the user to open the app manually.
     broadcasting, automatically or by mistake) from corrupting or becoming
     the sole reported ride location once their walking-pace samples age
     out of the grace window.
-  Once broadcasting has started it is never speed-gated again; a device
-  keeps posting on every fix for as long as it's broadcasting, and only
-  stops via the safety timer or leaving the active time window (docs
-  section 3.2) — the grace-window exclusion only affects whether that
-  device's samples are counted in the aggregate, not whether it keeps
-  transmitting.
+  A device keeps posting on every fix for as long as it's broadcasting,
+  and only stops via the two stop conditions in 3.2 (safety timer, or
+  this same grace window elapsing without exceeding the speed threshold)
+  — the grace-window exclusion from the aggregate happens immediately
+  when it starts, while the actual stop only fires once the full window
+  has elapsed; a device can therefore be excluded from the shown
+  aggregate for a while before its own broadcast actually ends.
 - **Direction of travel:** the map's direction arrow and rotation follow the
   reported (aggregated) location's own progression between updates —
   `map.html`'s `bearingDegrees()` computed from consecutive fixes of

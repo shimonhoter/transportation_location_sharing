@@ -34,8 +34,14 @@ object RideConfig {
      * off and is now walking) drops out of the aggregate entirely, instead
      * of its now-irrelevant, jittery position being averaged in or shown
      * outright.
+     *
+     * Also doubles as a stop condition for the device's own broadcast
+     * (BroadcastService.handleLocationUpdate): once a broadcasting device
+     * has gone this long without exceeding the speed threshold, it stops
+     * broadcasting entirely — not just dropping out of the shown aggregate
+     * — alongside the safety-timer stop, whichever comes first.
      */
-    const val RECENTLY_MOVING_GRACE_SECONDS = 90.0
+    const val RECENTLY_MOVING_GRACE_SECONDS = 300.0
 
     /**
      * Corroboration: when two or more devices are moving at once, each is

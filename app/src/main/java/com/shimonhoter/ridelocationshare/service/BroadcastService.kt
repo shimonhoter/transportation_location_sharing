@@ -37,10 +37,12 @@ import kotlinx.coroutines.launch
 
 /**
  * Owns this device's participation in the current ride: decides (in
- * automatic mode) when to start broadcasting based on the movement + geofence
- * condition, writes this device's location to Firebase while broadcasting,
- * and separately listens for the shared ride location for the UI and for
- * on-device alert-zone checks (docs/SPEC_EN.md sections 3.1-3.6).
+ * automatic mode) when to start broadcasting based on the active window +
+ * speed condition, and when to stop it (safety timer or sustained low
+ * speed, whichever comes first); writes this device's location to Firebase
+ * while broadcasting, and separately listens for the shared ride location
+ * for the UI and for on-device alert-zone checks (docs/SPEC_EN.md sections
+ * 3.1-3.6).
  *
  * Every caller must go through [startAutomatic] or [stop] — a single call
  * path per action.
@@ -159,6 +161,19 @@ class BroadcastService : Service() {
         }
         locationCallback = callback
         fusedClient.requestLocationUpdates(request, callback, Looper.getMainLooper())
+
+        // A cold GPS fix can take far longer than locationUpdateIntervalSeconds
+        // to arrive (tens of seconds), which is exactly the delay noticed right
+        // after the service (re)starts from nothing — boot, a WorkManager tick,
+        // or the app being reopened. The fused provider's last-known (cached)
+        // location is usually available instantly; using it here — if fresh
+        // enough to trust — lets the auto-start condition be evaluated right
+        // away instead of waiting for the first live update.
+        fusedClient.lastLocation.addOnSuccessListener { cached ->
+            if (cached != null && System.currentTimeMillis() - cached.time <= LAST_LOCATION_MAX_AGE_MILLIS) {
+                handleLocationUpdate(cached)
+            }
+        }
     }
 
     private fun handleLocationUpdate(location: Location) {
@@ -179,8 +194,19 @@ class BroadcastService : Service() {
                 locationRepository.postLocation(rideCode, location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis)
             }
 
+            // Stop condition: time OR sustained low speed, whichever comes
+            // first — the safety timer is checked first since it's the
+            // simpler/cheaper comparison, but either can end the broadcast.
             if (System.currentTimeMillis() >= rideEndDeadlineMillis()) {
                 AppLog.i(TAG, "Safety timer expired, ending broadcast for this device")
+                stopBroadcasting()
+                stopSelf()
+                return
+            }
+
+            val stoppedMovingMillis = System.currentTimeMillis() - lastMovingAtMillis
+            if (lastMovingAtMillis > 0 && stoppedMovingMillis >= RideConfig.RECENTLY_MOVING_GRACE_SECONDS * 1000) {
+                AppLog.i(TAG, "No movement above threshold for ${RideConfig.RECENTLY_MOVING_GRACE_SECONDS.toInt()}s, ending broadcast for this device")
                 stopBroadcasting()
                 stopSelf()
                 return
@@ -272,6 +298,9 @@ class BroadcastService : Service() {
         private const val ACTION_AUTO_START = "com.shimonhoter.ridelocationshare.action.AUTO_START"
         private const val ACTION_STOP = "com.shimonhoter.ridelocationshare.action.STOP"
         private const val ACTION_REFRESH_SETTINGS = "com.shimonhoter.ridelocationshare.action.REFRESH_SETTINGS"
+
+        /** A cached last-known location older than this is too stale to trust for an immediate auto-start check (see ensureMonitoring). */
+        private const val LAST_LOCATION_MAX_AGE_MILLIS = 30_000L
 
         /** Whether an instance of this service is currently alive. Lets callers
          * (e.g. the Settings screen) decide whether it's meaningful to push a
