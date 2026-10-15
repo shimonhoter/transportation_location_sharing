@@ -58,7 +58,8 @@
         <service
             android:name=".service.BroadcastService"
             android:exported="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="location"
+            android:stopWithTask="false" />
 
         <receiver
             android:name=".BootReceiver"

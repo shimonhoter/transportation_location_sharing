@@ -185,6 +185,19 @@ device finishes starting up, so the app resumes automatic background
 monitoring right after a phone reboot instead of waiting for the next
 periodic check or for the user to open the app manually.
 
+**Surviving the app being swiped away from Recents:** `BroadcastService`
+is declared with `android:stopWithTask="false"`, and additionally
+overrides `onTaskRemoved()` to schedule an immediate restart via
+`AlarmManager` (using `PendingIntent.getForegroundService`) whenever
+automation should still be running (currently broadcasting, or still
+inside the active window) — closing the app from Recents is the single
+most common reason a "runs in the background" service actually stops,
+since the default Android behavior ties a service's lifetime to its
+hosting task unless told otherwise. This reduces, but on some OEMs
+(Xiaomi/MIUI, Huawei, Samsung, OnePlus) cannot fully eliminate,
+aggressive background-app killing — those still require the user to
+exempt the app from battery optimization in device settings.
+
 ## 4. Architecture & Technology
 
 ### 4.1 Android app

@@ -123,6 +123,40 @@ class BroadcastService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /** Swiping the app away from Recents removes its task — on stock Android
+     * and most OEMs this then kills this foreground service along with it
+     * (a plain `startForegroundService()` from an Activity doesn't survive
+     * that the way a genuinely independent background app would), which is
+     * exactly the "stops working once the app is closed" symptom. If
+     * automation should still be running, schedule an immediate restart via
+     * AlarmManager — more reliable than restarting synchronously here,
+     * since this process may already be mid-teardown by the time this
+     * runs. This can only reduce, not fully eliminate, OEM-specific
+     * aggressive background killing (Xiaomi/Huawei/Samsung etc.), which
+     * still needs the user to whitelist the app in battery settings. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val shouldKeepRunning = isBroadcastingLocally ||
+            (!prefs.isPrivateCarActive() && ActiveWindow.isNowActive(prefs))
+        if (!shouldKeepRunning) return
+
+        val restartIntent = Intent(applicationContext, BroadcastService::class.java)
+            .setAction(ACTION_AUTO_START)
+            .setPackage(packageName)
+        val pendingIntent = android.app.PendingIntent.getForegroundService(
+            applicationContext,
+            RESTART_REQUEST_CODE,
+            restartIntent,
+            android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(android.app.AlarmManager::class.java)
+        alarmManager?.set(
+            android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            android.os.SystemClock.elapsedRealtime() + RESTART_DELAY_MILLIS,
+            pendingIntent
+        )
+    }
+
     /** Tears down the current location callback and rebuilds it, so a changed
      * [Prefs.locationUpdateIntervalSeconds] takes effect immediately rather than
      * only on the next broadcast session start; also re-subscribes the shared
@@ -301,6 +335,9 @@ class BroadcastService : Service() {
 
         /** A cached last-known location older than this is too stale to trust for an immediate auto-start check (see ensureMonitoring). */
         private const val LAST_LOCATION_MAX_AGE_MILLIS = 30_000L
+
+        private const val RESTART_REQUEST_CODE = 1001
+        private const val RESTART_DELAY_MILLIS = 1_000L
 
         /** Whether an instance of this service is currently alive. Lets callers
          * (e.g. the Settings screen) decide whether it's meaningful to push a
