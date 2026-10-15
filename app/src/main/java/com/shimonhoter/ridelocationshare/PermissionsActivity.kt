@@ -10,17 +10,22 @@ import android.provider.Settings
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.shimonhoter.ridelocationshare.data.Prefs
 import com.shimonhoter.ridelocationshare.databinding.ActivityPermissionsBinding
 
 /**
  * Full-screen onboarding shown on first run, walking the user through the
  * required permission sequence in order: foreground location -> background
- * location -> notifications (docs/SPEC_EN.md 3.7). Skipped entirely once
- * everything the current API level requires is already granted.
+ * location -> notifications (docs/SPEC_EN.md 3.7), plus — on detected
+ * Xiaomi/MIUI devices only — a self-reported checklist for OS-level
+ * autostart/battery/notification settings Android itself has no API to
+ * request or query (see isMiuiDevice). Skipped entirely once everything
+ * the current API level (and device) requires is already granted/confirmed.
  */
 class PermissionsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityPermissionsBinding
+    private lateinit var prefs: Prefs
 
     private val requestForegroundLocation = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         onPermissionResult(granted)
@@ -36,6 +41,7 @@ class PermissionsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityPermissionsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        prefs = Prefs(this)
 
         if (allRequiredPermissionsGranted()) {
             goToMain()
@@ -58,8 +64,18 @@ class PermissionsActivity : AppCompatActivity() {
         binding.btnOpenSettings.setOnClickListener { openAppSettings() }
         binding.btnContinue.setOnClickListener { goToMain() }
 
+        binding.cardMiuiSettings.visibility = if (isMiuiDevice()) android.view.View.VISIBLE else android.view.View.GONE
+        binding.cbMiuiSettingsConfirmed.isChecked = prefs.miuiBackgroundSettingsConfirmed
+        binding.cbMiuiSettingsConfirmed.setOnCheckedChangeListener { _, isChecked ->
+            prefs.miuiBackgroundSettingsConfirmed = isChecked
+        }
+        binding.btnOpenMiuiSettings.setOnClickListener { openAppSettings() }
+
         refreshCardState()
     }
+
+    /** Covers Redmi/POCO too — all Xiaomi sub-brands report this same manufacturer string. */
+    private fun isMiuiDevice(): Boolean = Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true)
 
     override fun onResume() {
         super.onResume()
@@ -92,7 +108,8 @@ class PermissionsActivity : AppCompatActivity() {
             isGranted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         val notifications = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             isGranted(Manifest.permission.POST_NOTIFICATIONS)
-        return foreground && background && notifications
+        val miuiSettings = !isMiuiDevice() || prefs.miuiBackgroundSettingsConfirmed
+        return foreground && background && notifications && miuiSettings
     }
 
     private fun isGranted(permission: String): Boolean =

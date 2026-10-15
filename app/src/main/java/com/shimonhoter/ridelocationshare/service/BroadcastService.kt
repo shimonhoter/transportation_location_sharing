@@ -29,6 +29,7 @@ import com.shimonhoter.ridelocationshare.data.Prefs
 import com.shimonhoter.ridelocationshare.remote.FirebaseLocationRepository
 import com.shimonhoter.ridelocationshare.util.ActiveWindow
 import com.shimonhoter.ridelocationshare.util.AppLog
+import com.shimonhoter.ridelocationshare.util.GeoUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,8 +39,9 @@ import kotlinx.coroutines.launch
 /**
  * Owns this device's participation in the current ride: decides (in
  * automatic mode) when to start broadcasting based on the active window +
- * speed condition, and when to stop it (safety timer or sustained low
- * speed, whichever comes first); writes this device's location to Firebase
+ * speed condition, and when to stop it (safety timer, sustained low speed,
+ * or reaching the destination zone — whichever comes first); writes this
+ * device's location to Firebase
  * while broadcasting, and separately listens for the shared ride location
  * for the UI and for on-device alert-zone checks (docs/SPEC_EN.md sections
  * 3.1-3.6).
@@ -228,9 +230,10 @@ class BroadcastService : Service() {
                 locationRepository.postLocation(rideCode, location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis)
             }
 
-            // Stop condition: time OR sustained low speed, whichever comes
-            // first — the safety timer is checked first since it's the
-            // simpler/cheaper comparison, but either can end the broadcast.
+            // Stop condition: time, sustained low speed, or reaching the
+            // destination zone — whichever comes first. The safety timer is
+            // checked first since it's the cheapest comparison, but any of
+            // the three can end the broadcast.
             if (System.currentTimeMillis() >= rideEndDeadlineMillis()) {
                 AppLog.i(TAG, "Safety timer expired, ending broadcast for this device")
                 stopBroadcasting()
@@ -244,6 +247,17 @@ class BroadcastService : Service() {
                 stopBroadcasting()
                 stopSelf()
                 return
+            }
+
+            val destination = prefs.destination
+            if (destination != null) {
+                val distanceToDestination = GeoUtil.distanceMeters(location.latitude, location.longitude, destination.lat, destination.lon)
+                if (distanceToDestination <= prefs.destinationRadiusMeters) {
+                    AppLog.i(TAG, "Entered destination zone, ending broadcast for this device")
+                    stopBroadcasting()
+                    stopSelf()
+                    return
+                }
             }
         }
 

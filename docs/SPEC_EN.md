@@ -60,14 +60,17 @@ per-device history).
   effect **and** the device's speed exceeds
   `RideConfig.MOVING_SPEED_THRESHOLD_KMH` — no origin/geofence requirement;
   broadcasting can start from anywhere once moving fast enough.
-- **Stop condition — two, checked in parallel, whichever triggers first:**
+- **Stop condition — three, checked in parallel, whichever triggers first:**
   1. a safety timer set to the expected trip duration plus a safety margin;
   2. sustained low speed — the device hasn't exceeded
      `RideConfig.MOVING_SPEED_THRESHOLD_KMH` for longer than
      `RideConfig.RECENTLY_MOVING_GRACE_SECONDS` (5 minutes) straight (a
-     passenger got off, or the ride has stopped for good). Both are checked
-     on every location fix in `BroadcastService.handleLocationUpdate`; the
-     safety timer is checked first but either one ends the broadcast.
+     passenger got off, or the ride has stopped for good);
+  3. reaching the destination zone — the device's own location falls
+     within `Prefs.destinationRadiusMeters` of `Prefs.destination`, if one
+     is configured (3.4). All three are checked on every location fix in
+     `BroadcastService.handleLocationUpdate`; the safety timer is checked
+     first, but any of the three ends the broadcast.
 - **Manual opt-out:** "Stay home" (main screen) blocks the automatic
   start condition entirely, for a passenger who isn't on the shared ride
   today (or just found out they aren't) instead of taking it as usual —
@@ -98,16 +101,27 @@ configured days/window, WorkManager checks are no-ops.
   ride enters the same code themselves, no admin or shared invite needed.
 - Nickname (free text) + a toggle for whether to show it at all (default:
   hidden/none).
-- Personal origin and destination locations.
-- Geofence radius.
+- Personal origin and destination — each a **circular zone** (center +
+  radius), not just a point.
 - Expected trip duration / time-window margins.
 - Active weekdays and the single daily active time window.
 - Local ETA history toggle (`Prefs.historyEnabled`), off by default; see
   4.5.
 
-Locations can be set two ways in every picker: **"Use current location"**
-or **drop a pin on the map** (map pans under a fixed center pin — the user
-moves the map, not the pin).
+Origin/destination can be set two ways: **"Use current location"** (places
+a zone there at its current/default radius) or **"Pick on map"**, which
+opens `MapPickerActivity` showing that one zone with the exact same
+move/resize drag handles (✛/↔) as alert-zone editing (3.5) — radius is set
+by dragging the edge handle, not a separate numeric field. `Prefs.origin`/
+`Prefs.geofenceRadiusMeters` and `Prefs.destination`/
+`Prefs.destinationRadiusMeters` are the two symmetric pairs. Neither
+affects when broadcasting *starts* (3.2) — the origin zone is used only
+for the ETA "arrival at stop" estimate (4.5), while the destination zone
+is one of the three broadcast *stop* conditions (3.2). Both zones, when
+configured, are drawn as permanent, lightly-tinted reference circles on
+the main map (`setOriginDestZones()` in `map.html`) — green for origin,
+blue for destination — distinct from the red alert-zone circles and not
+editable from the main map itself.
 
 ### 3.5 Personal alert zones
 A user can mark arbitrary circular zones directly on the main map — there is
@@ -143,9 +157,10 @@ background — see 6):
 - **Broadcast indicator (center, larger)** — a status indicator only, not a
   control (not clickable, no tap handler). Always shows an antenna icon,
   green while `RideSessionState.isThisDeviceBroadcasting` is true. Whenever
-  it's false — for any reason: stay-home mode, the movement/geofence
-  start condition not yet met, or an automatic stop (safety timer, outside
-  the active window) — a red "blocked" badge is overlaid on the antenna, so
+  it's false — for any reason: stay-home mode, the speed start condition
+  not yet met, or an automatic stop (safety timer, sustained low speed,
+  reaching the destination zone, outside the active window) — a red
+  "blocked" badge is overlaid on the antenna, so
   a single glance always answers "is my location going out right now",
   regardless of why it isn't. A short toast ("Broadcasting started"/"Not
   broadcasting location") fires on every actual transition.
@@ -174,6 +189,17 @@ the required order:
 
 If a permission is denied, the app explains why it's needed and links
 directly to the app's system settings screen.
+
+**Xiaomi/MIUI/HyperOS devices** (detected via `Build.MANUFACTURER`) see one
+additional card: standard Android permissions aren't enough there, since
+MIUI has its own separate autostart/battery-saver/notification layer that
+Android exposes no API to request or query. The card explains the four
+settings to configure manually (autostart, battery saver → no
+restrictions, lock the app in the Recents task switcher, notifications
+toggle) and a checkbox to self-confirm having done so
+(`Prefs.miuiBackgroundSettingsConfirmed`) — necessarily self-reported,
+unlike the three checkbox-free permission cards above which verify
+real grant state via `checkSelfPermission`.
 
 ### 3.8 Background scheduling
 A WorkManager periodic job runs roughly every 15 minutes, checks whether

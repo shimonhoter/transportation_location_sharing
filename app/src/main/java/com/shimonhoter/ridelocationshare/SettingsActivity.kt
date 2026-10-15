@@ -32,6 +32,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private var pendingOrigin: GeoPoint? = null
     private var pendingDestination: GeoPoint? = null
+    private var pendingOriginRadius: Int = 150
+    private var pendingDestinationRadius: Int = 150
     private var mapPickerTarget: PickTarget? = null
 
     private enum class PickTarget { ORIGIN, DESTINATION }
@@ -40,10 +42,11 @@ class SettingsActivity : AppCompatActivity() {
         val data = result.data ?: return@registerForActivityResult
         val lat = data.getDoubleExtra(MapPickerActivity.EXTRA_RESULT_LAT, Double.NaN)
         val lon = data.getDoubleExtra(MapPickerActivity.EXTRA_RESULT_LON, Double.NaN)
-        if (lat.isNaN() || lon.isNaN()) return@registerForActivityResult
+        val radius = data.getDoubleExtra(MapPickerActivity.EXTRA_RESULT_RADIUS, Double.NaN)
+        if (lat.isNaN() || lon.isNaN() || radius.isNaN()) return@registerForActivityResult
         when (mapPickerTarget) {
-            PickTarget.ORIGIN -> setOrigin(GeoPoint(lat, lon))
-            PickTarget.DESTINATION -> setDestination(GeoPoint(lat, lon))
+            PickTarget.ORIGIN -> setOrigin(GeoPoint(lat, lon), radius.toInt())
+            PickTarget.DESTINATION -> setDestination(GeoPoint(lat, lon), radius.toInt())
             null -> Unit
         }
     }
@@ -64,14 +67,6 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.etWindowStart.setOnClickListener { pickTime(binding.etWindowStart) }
         binding.etWindowEnd.setOnClickListener { pickTime(binding.etWindowEnd) }
-
-        binding.seekGeofenceRadius.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                updateGeofenceLabel(progress)
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-        })
 
         binding.seekLocationUpdateInterval.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -114,11 +109,10 @@ class SettingsActivity : AppCompatActivity() {
 
         pendingOrigin = prefs.origin
         pendingDestination = prefs.destination
+        pendingOriginRadius = prefs.geofenceRadiusMeters
+        pendingDestinationRadius = prefs.destinationRadiusMeters
         updateOriginLabel()
         updateDestinationLabel()
-
-        binding.seekGeofenceRadius.progress = prefs.geofenceRadiusMeters
-        updateGeofenceLabel(prefs.geofenceRadiusMeters)
 
         binding.seekLocationUpdateInterval.progress = prefs.locationUpdateIntervalSeconds
         updateLocationUpdateIntervalLabel(prefs.locationUpdateIntervalSeconds)
@@ -147,10 +141,6 @@ class SettingsActivity : AppCompatActivity() {
         binding.cbSaturday.isChecked = Calendar.SATURDAY in activeDays
     }
 
-    private fun updateGeofenceLabel(radius: Int) {
-        binding.tvGeofenceRadiusValue.text = getString(R.string.geofence_radius_label) + ": ${radius}m"
-    }
-
     private fun updateLocationUpdateIntervalLabel(seconds: Int) {
         binding.tvLocationUpdateIntervalValue.text = getString(R.string.location_update_interval_label) + ": ${seconds}s"
     }
@@ -159,22 +149,28 @@ class SettingsActivity : AppCompatActivity() {
         binding.tvCorroborationRadiusValue.text = getString(R.string.corroboration_radius_label) + ": ${radius}m"
     }
 
-    private fun setOrigin(point: GeoPoint) {
+    private fun setOrigin(point: GeoPoint, radiusMeters: Int = pendingOriginRadius) {
         pendingOrigin = point
+        pendingOriginRadius = radiusMeters
         updateOriginLabel()
     }
 
-    private fun setDestination(point: GeoPoint) {
+    private fun setDestination(point: GeoPoint, radiusMeters: Int = pendingDestinationRadius) {
         pendingDestination = point
+        pendingDestinationRadius = radiusMeters
         updateDestinationLabel()
     }
 
     private fun updateOriginLabel() {
-        binding.tvOriginValue.text = pendingOrigin?.let { "%.5f, %.5f".format(it.lat, it.lon) } ?: "לא הוגדר"
+        binding.tvOriginValue.text = pendingOrigin?.let {
+            "%.5f, %.5f (רדיוס %dמ')".format(it.lat, it.lon, pendingOriginRadius)
+        } ?: "לא הוגדר"
     }
 
     private fun updateDestinationLabel() {
-        binding.tvDestinationValue.text = pendingDestination?.let { "%.5f, %.5f".format(it.lat, it.lon) } ?: "לא הוגדר"
+        binding.tvDestinationValue.text = pendingDestination?.let {
+            "%.5f, %.5f (רדיוס %dמ')".format(it.lat, it.lon, pendingDestinationRadius)
+        } ?: "לא הוגדר"
     }
 
     private fun useCurrentLocation(target: PickTarget) {
@@ -200,15 +196,18 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun openMapPicker(target: PickTarget) {
         mapPickerTarget = target
-        val initial = when (target) {
-            PickTarget.ORIGIN -> pendingOrigin
-            PickTarget.DESTINATION -> pendingDestination
+        val initialPoint: GeoPoint?
+        val initialRadius: Int
+        when (target) {
+            PickTarget.ORIGIN -> { initialPoint = pendingOrigin; initialRadius = pendingOriginRadius }
+            PickTarget.DESTINATION -> { initialPoint = pendingDestination; initialRadius = pendingDestinationRadius }
         }
         val intent = Intent(this, MapPickerActivity::class.java).apply {
-            initial?.let {
+            initialPoint?.let {
                 putExtra(MapPickerActivity.EXTRA_INITIAL_LAT, it.lat)
                 putExtra(MapPickerActivity.EXTRA_INITIAL_LON, it.lon)
             }
+            putExtra(MapPickerActivity.EXTRA_INITIAL_RADIUS, initialRadius.toDouble())
         }
         pickOnMap.launch(intent)
     }
@@ -247,7 +246,8 @@ class SettingsActivity : AppCompatActivity() {
         prefs.showNickname = binding.switchShowNickname.isChecked
         prefs.origin = pendingOrigin
         prefs.destination = pendingDestination
-        prefs.geofenceRadiusMeters = binding.seekGeofenceRadius.progress
+        prefs.geofenceRadiusMeters = pendingOriginRadius
+        prefs.destinationRadiusMeters = pendingDestinationRadius
         prefs.locationUpdateIntervalSeconds = binding.seekLocationUpdateInterval.progress
         prefs.corroborationRadiusMeters = binding.seekCorroborationRadius.progress
         prefs.historyEnabled = binding.switchHistoryEnabled.isChecked

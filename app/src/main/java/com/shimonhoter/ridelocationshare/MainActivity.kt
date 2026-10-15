@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 mapReady = true
                 pushAlertZonesToMap()
+                pushOriginDestZonesToMap()
                 RideSessionState.currentLocation.value?.let { renderRideLocation(it) }
             }
         }
@@ -123,6 +124,7 @@ class MainActivity : AppCompatActivity() {
         renderPrivateCarToggle()
         renderBroadcastToggle(RideSessionState.isThisDeviceBroadcasting.value == true)
         schedulePrivateCarAutoOffRefresh()
+        if (mapReady) pushOriginDestZonesToMap()
     }
 
     override fun onStop() {
@@ -256,6 +258,21 @@ class MainActivity : AppCompatActivity() {
             .setMessage(HtmlCompat.fromHtml(getString(R.string.help_body), HtmlCompat.FROM_HTML_MODE_LEGACY))
             .setPositiveButton(R.string.help_close_button, null)
             .show()
+    }
+
+    /** Permanent, lightly-styled reference circles for the configured origin/destination (docs/SPEC_EN.md 3.4) — distinct from the red alert-zone circles. */
+    private fun pushOriginDestZonesToMap() {
+        fun zoneJson(point: com.shimonhoter.ridelocationshare.data.GeoPoint?, radiusMeters: Int): String {
+            if (point == null) return "null"
+            return JSONObject().apply {
+                put("lat", point.lat)
+                put("lon", point.lon)
+                put("radiusMeters", radiusMeters)
+            }.toString()
+        }
+        val originJson = zoneJson(prefs.origin, prefs.geofenceRadiusMeters).replace("'", "\\'")
+        val destJson = zoneJson(prefs.destination, prefs.destinationRadiusMeters).replace("'", "\\'")
+        binding.webViewMap.evaluateJavascript("setOriginDestZones('$originJson', '$destJson')", null)
     }
 
     private fun pushAlertZonesToMap() {

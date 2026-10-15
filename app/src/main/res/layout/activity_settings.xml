@@ -160,25 +160,9 @@
                 android:orientation="vertical"
                 android:padding="@dimen/spacing_md">
 
-                <TextView
-                    android:id="@+id/tvGeofenceRadiusValue"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/geofence_radius_label"
-                    android:textColor="@color/on_surface"
-                    android:textStyle="bold" />
-
-                <SeekBar
-                    android:id="@+id/seekGeofenceRadius"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="500"
-                    android:min="50" />
-
                 <com.google.android.material.textfield.TextInputLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/spacing_sm"
                     android:hint="@string/trip_duration_label">
 
                     <com.google.android.material.textfield.TextInputEditText

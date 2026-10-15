@@ -32,10 +32,10 @@
   <div id="map"></div>
   <script>
     // Shared map page used by MainActivity (mode=view, including alert-zone
-    // editing — see the 📍 control below) and MapPickerActivity (mode=pick).
-    // Kotlin drives it via evaluateJavascript() calls into the functions
-    // below; this page talks back to Kotlin through the injected `Android`
-    // JavascriptInterface.
+    // editing — see the 📍 control below) and MapPickerActivity
+    // (mode=pick_zone, origin/destination radius picking). Kotlin drives it
+    // via evaluateJavascript() calls into the functions below; this page
+    // talks back to Kotlin through the injected `Android` JavascriptInterface.
 
     function queryParam(name, fallback) {
       var params = new URLSearchParams(window.location.search);
@@ -46,6 +46,7 @@
     var initialLat = parseFloat(queryParam('lat', '32.0853'));
     var initialLon = parseFloat(queryParam('lon', '34.7818'));
     var initialZoom = parseFloat(queryParam('zoom', '13'));
+    var initialRadius = parseFloat(queryParam('radius', '150'));
 
     // Fully free, keyless tile sources — no signup, no API key, no usage
     // quota to manage (see docs/SPEC_EN.md 4.1):
@@ -307,10 +308,14 @@
       return el;
     }
 
-    // 'style.load' fires on the initial load AND every subsequent
-    // setStyle() call, since setStyle() wipes any custom sources/layers
-    // (but not DOM-based markers, which survive style switches on their
-    // own) — re-adding the zone source/layers here covers both cases.
+    // Permanent, lightly-styled circles for the configured origin/destination
+    // (docs/SPEC_EN.md 3.4) — always visible in view mode as a reference
+    // while watching the ride, distinct from the red alert-zone circles.
+    // Not editable here; editing happens in MapPickerActivity (mode=pick_zone).
+    var originDestSourceId = 'origin-dest-zones';
+    var originZone = null; // {lat, lon, radiusMeters} or null
+    var destZone = null;
+
     map.on('style.load', function () {
       if (!map.getSource(zoneSourceId)) {
         map.addSource(zoneSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -328,7 +333,44 @@
         });
       }
       applyStoredZones();
+
+      if (mode === 'view' && !map.getSource(originDestSourceId)) {
+        map.addSource(originDestSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+          id: originDestSourceId + '-fill',
+          type: 'fill',
+          source: originDestSourceId,
+          paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.12 }
+        });
+        map.addLayer({
+          id: originDestSourceId + '-outline',
+          type: 'line',
+          source: originDestSourceId,
+          paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.6 }
+        });
+      }
+      if (mode === 'view') applyOriginDestZones();
     });
+
+    function applyOriginDestZones() {
+      var source = map.getSource(originDestSourceId);
+      if (!source) return;
+      var features = [];
+      if (originZone) {
+        features.push({ type: 'Feature', properties: { color: '#2E7D6B' }, geometry: circlePolygon(originZone.lat, originZone.lon, originZone.radiusMeters) });
+      }
+      if (destZone) {
+        features.push({ type: 'Feature', properties: { color: '#2E86C1' }, geometry: circlePolygon(destZone.lat, destZone.lon, destZone.radiusMeters) });
+      }
+      source.setData({ type: 'FeatureCollection', features: features });
+    }
+
+    // originJson/destJson: JSON string {lat, lon, radiusMeters} or "null".
+    function setOriginDestZones(originJson, destJson) {
+      originZone = JSON.parse(originJson);
+      destZone = JSON.parse(destJson);
+      applyOriginDestZones();
+    }
 
     // Alert-zone editing (docs/SPEC_EN.md 3.5): a single click while
     // zoneEditModeEnabled places a new zone, unless it landed inside an
@@ -576,9 +618,75 @@
       delete liveZoneOverrides[id];
     }
 
-    function getCenter() {
-      var c = map.getCenter();
-      return c.lat + ',' + c.lng;
+    // --- Single-zone radius picker (MapPickerActivity, mode=pick_zone) ---
+    // Used for origin/destination (docs/SPEC_EN.md 3.4): same visual
+    // language as alert-zone editing (circle + ✛ move / ↔ resize handles),
+    // just a single always-present zone with no add/delete step, since the
+    // screen itself is dedicated to editing exactly one zone.
+    var pickZoneState = null;
+    var pickZoneSourceId = 'pick-zone';
+
+    if (mode === 'pick_zone') {
+      pickZoneState = { lat: initialLat, lon: initialLon, radiusMeters: initialRadius };
+      map.on('style.load', function () {
+        if (!map.getSource(pickZoneSourceId)) {
+          map.addSource(pickZoneSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+          map.addLayer({ id: pickZoneSourceId + '-fill', type: 'fill', source: pickZoneSourceId, paint: { 'fill-color': '#2E7D6B', 'fill-opacity': 0.2 } });
+          map.addLayer({ id: pickZoneSourceId + '-outline', type: 'line', source: pickZoneSourceId, paint: { 'line-color': '#2E7D6B', 'line-width': 2 } });
+        }
+        applyPickZone();
+        addPickZoneHandles();
+      });
+    }
+
+    function applyPickZone() {
+      var source = map.getSource(pickZoneSourceId);
+      if (!source || !pickZoneState) return;
+      source.setData({
+        type: 'FeatureCollection',
+        features: [{ type: 'Feature', geometry: circlePolygon(pickZoneState.lat, pickZoneState.lon, pickZoneState.radiusMeters) }]
+      });
+    }
+
+    function addPickZoneHandles() {
+      var centerEl = document.createElement('div');
+      centerEl.className = 'zone-handle';
+      centerEl.textContent = '✛';
+      var centerMarker = new maplibregl.Marker({ element: centerEl, draggable: true })
+        .setLngLat([pickZoneState.lon, pickZoneState.lat])
+        .addTo(map);
+
+      var edgeEl = document.createElement('div');
+      edgeEl.className = 'zone-handle';
+      edgeEl.textContent = '↔';
+      var edgeStart = destinationLatLon(pickZoneState.lat, pickZoneState.lon, pickZoneState.radiusMeters, 90);
+      var edgeMarker = new maplibregl.Marker({ element: edgeEl, draggable: true })
+        .setLngLat([edgeStart[1], edgeStart[0]])
+        .addTo(map);
+
+      function repositionEdgeMarker() {
+        var pos = destinationLatLon(pickZoneState.lat, pickZoneState.lon, pickZoneState.radiusMeters, 90);
+        edgeMarker.setLngLat([pos[1], pos[0]]);
+      }
+
+      centerMarker.on('drag', function () {
+        var lngLat = centerMarker.getLngLat();
+        pickZoneState.lat = lngLat.lat;
+        pickZoneState.lon = lngLat.lng;
+        repositionEdgeMarker();
+        applyPickZone();
+      });
+
+      edgeMarker.on('drag', function () {
+        var edgeLngLat = edgeMarker.getLngLat();
+        pickZoneState.radiusMeters = Math.max(20, distanceMetersLatLon(pickZoneState.lat, pickZoneState.lon, edgeLngLat.lat, edgeLngLat.lng));
+        applyPickZone();
+      });
+    }
+
+    function getPickedZone() {
+      if (!pickZoneState) return '';
+      return pickZoneState.lat + ',' + pickZoneState.lon + ',' + pickZoneState.radiusMeters;
     }
   </script>
 </body>

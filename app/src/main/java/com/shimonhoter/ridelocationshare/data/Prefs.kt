@@ -36,9 +36,15 @@ class Prefs(context: Context) {
         get() = readPoint(KEY_DEST_LAT, KEY_DEST_LON)
         set(value) = writePoint(KEY_DEST_LAT, KEY_DEST_LON, value)
 
+    /** Radius around [origin] — both "how close counts as having reached the origin stop" for the ETA estimate, and (since the stop condition below) "how close to the origin counts as home" has no bearing on broadcast start/stop by itself; see [destinationRadiusMeters] for the symmetric field around [destination]. */
     var geofenceRadiusMeters: Int
         get() = sp.getInt(KEY_GEOFENCE_RADIUS, 200)
         set(value) = sp.edit().putInt(KEY_GEOFENCE_RADIUS, value).apply()
+
+    /** Radius around [destination] — entering it is one of BroadcastService's stop conditions (docs/SPEC_EN.md 3.2). */
+    var destinationRadiusMeters: Int
+        get() = sp.getInt(KEY_DEST_RADIUS, 200)
+        set(value) = sp.edit().putInt(KEY_DEST_RADIUS, value).apply()
 
     var tripDurationMinutes: Int
         get() = sp.getInt(KEY_TRIP_DURATION, 90)
@@ -103,6 +109,14 @@ class Prefs(context: Context) {
     var historyEnabled: Boolean
         get() = sp.getBoolean(KEY_HISTORY_ENABLED, false)
         set(value) = sp.edit().putBoolean(KEY_HISTORY_ENABLED, value).apply()
+
+    /** Self-reported only — Android exposes no query API for MIUI's own
+     * autostart/battery/notification toggles, so this just records that the
+     * user said they went through PermissionsActivity's OEM settings step
+     * (shown only on detected Xiaomi/MIUI devices). */
+    var miuiBackgroundSettingsConfirmed: Boolean
+        get() = sp.getBoolean(KEY_MIUI_SETTINGS_CONFIRMED, false)
+        set(value) = sp.edit().putBoolean(KEY_MIUI_SETTINGS_CONFIRMED, value).apply()
 
     private var privateCarActiveUntilMillis: Long
         get() = sp.getLong(KEY_PRIVATE_CAR_UNTIL, 0L)
@@ -173,6 +187,7 @@ class Prefs(context: Context) {
         private const val KEY_DEST_LAT = "dest_lat"
         private const val KEY_DEST_LON = "dest_lon"
         private const val KEY_GEOFENCE_RADIUS = "geofence_radius"
+        private const val KEY_DEST_RADIUS = "dest_radius"
         private const val KEY_TRIP_DURATION = "trip_duration"
         private const val KEY_SAFETY_MARGIN = "safety_margin"
         private const val KEY_WINDOW_START = "window_start"
@@ -185,6 +200,7 @@ class Prefs(context: Context) {
         private const val KEY_LOCATION_UPDATE_INTERVAL = "location_update_interval_seconds"
         private const val KEY_CORROBORATION_RADIUS = "corroboration_radius"
         private const val KEY_HISTORY_ENABLED = "history_enabled"
+        private const val KEY_MIUI_SETTINGS_CONFIRMED = "miui_settings_confirmed"
         private const val KEY_PRIVATE_CAR_UNTIL = "private_car_active_until"
         private const val KEY_ALERT_SOUND_DURATION = "alert_sound_duration_seconds"
 
