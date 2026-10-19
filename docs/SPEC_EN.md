@@ -186,20 +186,42 @@ the required order:
 1. Foreground location.
 2. Background location.
 3. Notifications.
+4. Battery optimization exemption.
 
-If a permission is denied, the app explains why it's needed and links
-directly to the app's system settings screen.
+If a permission is denied, the app explains why it's needed. For most of
+them the fallback is the app's generic system settings screen
+(`Settings.ACTION_APPLICATION_DETAILS_SETTINGS`) — Android exposes no
+public deep link into the specific Location permission sub-screen, so this
+is the best available target for the two location cards. Two cards do
+better than that generic fallback:
+- **Notifications** has an exact, official deep link
+  (`Settings.ACTION_APP_NOTIFICATION_SETTINGS` +
+  `Settings.EXTRA_APP_PACKAGE`) — a dedicated button opens the app's
+  notification settings screen directly, no navigation needed.
+- **Battery optimization** (a card shown on all devices, not just Xiaomi)
+  uses `Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` with a
+  `package:` URI — this pops a direct one-tap system grant dialog rather
+  than a settings screen at all, via the standard
+  `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission. Checked via
+  `PowerManager.isIgnoringBatteryOptimizations()`.
 
 **Xiaomi/MIUI/HyperOS devices** (detected via `Build.MANUFACTURER`) see one
 additional card: standard Android permissions aren't enough there, since
 MIUI has its own separate autostart/battery-saver/notification layer that
-Android exposes no API to request or query. The card explains the four
-settings to configure manually (autostart, battery saver → no
+Android exposes no public API to request or query. The card explains the
+four settings to configure manually (autostart, battery saver → no
 restrictions, lock the app in the Recents task switcher, notifications
 toggle) and a checkbox to self-confirm having done so
 (`Prefs.miuiBackgroundSettingsConfirmed`) — necessarily self-reported,
-unlike the three checkbox-free permission cards above which verify
-real grant state via `checkSelfPermission`.
+unlike the other checkbox-free permission cards which verify real grant
+state via `checkSelfPermission`/`PowerManager`. A best-effort button also
+tries to jump straight to MIUI's autostart management screen via known but
+undocumented/unofficial component names (`com.miui.securitycenter`'s
+`AutoStartManagementActivity`, then the `miui.intent.action.OP_AUTO_START`
+action) — these have changed across MIUI versions before and aren't
+guaranteed to resolve, so it silently falls back to the generic app
+settings screen if neither does. "Lock the app in Recents" has no API at
+all on any OEM — it stays a manual, text-only instruction.
 
 ### 3.8 Background scheduling
 A WorkManager periodic job runs roughly every 15 minutes, checks whether
