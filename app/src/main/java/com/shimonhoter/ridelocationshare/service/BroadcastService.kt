@@ -64,6 +64,7 @@ class BroadcastService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        AppLog.i(TAG, "Service created")
         isRunning = true
         prefs = Prefs(this)
         fusedClient = LocationServices.getFusedLocationProviderClient(this)
@@ -100,6 +101,7 @@ class BroadcastService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
+        AppLog.i(TAG, "onStartCommand action=${intent?.action}")
 
         when (intent?.action) {
             ACTION_STOP -> {
@@ -140,7 +142,11 @@ class BroadcastService : Service() {
         super.onTaskRemoved(rootIntent)
         val shouldKeepRunning = isBroadcastingLocally ||
             (!prefs.isPrivateCarActive() && ActiveWindow.isNowActive(prefs))
-        if (!shouldKeepRunning) return
+        if (!shouldKeepRunning) {
+            AppLog.i(TAG, "App task removed, automation not due to run — not scheduling a restart")
+            return
+        }
+        AppLog.i(TAG, "App task removed, scheduling restart in ${RESTART_DELAY_MILLIS}ms")
 
         val restartIntent = Intent(applicationContext, BroadcastService::class.java)
             .setAction(ACTION_AUTO_START)

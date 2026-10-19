@@ -70,6 +70,20 @@
             </intent-filter>
         </receiver>
 
+        <!-- Exposes AppLog's on-device diagnostic log file for sharing
+             (SettingsActivity's "share diagnostic log" button) — needed
+             because a raw file:// Uri can't be handed to another app on
+             API 24+ (FileUriExposedException). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>

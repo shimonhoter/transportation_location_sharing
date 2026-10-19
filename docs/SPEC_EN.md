@@ -244,7 +244,22 @@ since the default Android behavior ties a service's lifetime to its
 hosting task unless told otherwise. This reduces, but on some OEMs
 (Xiaomi/MIUI, Huawei, Samsung, OnePlus) cannot fully eliminate,
 aggressive background-app killing — those still require the user to
-exempt the app from battery optimization in device settings.
+exempt the app from battery optimization in device settings. Android
+itself gives the user no way to override this: an app cannot block the
+swipe-to-dismiss gesture, only make it harmless by restarting quickly
+after it happens — the restart is what `onTaskRemoved()` buys.
+
+**Verifying the restart without a computer:** `AppLog` (used throughout
+the service) is an on-device rolling log file (`filesDir/app_log.txt`,
+capped at 256KB), not just a Logcat sink. `onCreate()`, `onStartCommand()`
+and `onTaskRemoved()` all log through it, so swiping the app away and
+reopening the diagnostic log (Settings → "יומן אבחון" / "Diagnostic log")
+shows the actual sequence — "App task removed, scheduling restart in
+1000ms" followed shortly by a fresh "Service created" / "onStartCommand
+action=ACTION_AUTO_START" — without needing `adb logcat` at all. A
+"share" button next to it sends the raw file via `FileProvider` +
+`ACTION_SEND` to any other app (messaging, email) for handing off to
+support.
 
 ## 4. Architecture & Technology
 

@@ -4,14 +4,18 @@ import android.Manifest
 import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.os.Bundle
 import android.widget.CheckBox
+import android.widget.ScrollView
 import android.widget.SeekBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.text.HtmlCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.LocationServices
@@ -21,6 +25,7 @@ import com.shimonhoter.ridelocationshare.data.TimeWindow
 import com.shimonhoter.ridelocationshare.history.RideHistoryStore
 import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.databinding.ActivitySettingsBinding
+import com.shimonhoter.ridelocationshare.util.AppLog
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -92,6 +97,38 @@ class SettingsActivity : AppCompatActivity() {
                 Toast.makeText(this@SettingsActivity, R.string.history_cleared_message, Toast.LENGTH_SHORT).show()
             }
         }
+        binding.btnShowDiagnosticLog.setOnClickListener { showDiagnosticLog() }
+        binding.btnShareDiagnosticLog.setOnClickListener { shareDiagnosticLog() }
+    }
+
+    private fun showDiagnosticLog() {
+        val text = AppLog.readAll().takeLast(8000).ifBlank { getString(R.string.diagnostic_log_empty) }
+        val textView = TextView(this).apply {
+            setText(text)
+            typeface = Typeface.MONOSPACE
+            textSize = 11f
+            setPadding(32, 32, 32, 32)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.diagnostic_log_title)
+            .setView(ScrollView(this).apply { addView(textView) })
+            .setPositiveButton(R.string.help_close_button, null)
+            .show()
+    }
+
+    private fun shareDiagnosticLog() {
+        val file = AppLog.fileOrNull()
+        if (file == null) {
+            Toast.makeText(this, R.string.diagnostic_log_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, getString(R.string.diagnostic_log_share_chooser_title)))
     }
 
     private fun showHelp() {
