@@ -160,25 +160,9 @@
                 android:orientation="vertical"
                 android:padding="@dimen/spacing_md">
 
-                <TextView
-                    android:id="@+id/tvGeofenceRadiusValue"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/geofence_radius_label"
-                    android:textColor="@color/on_surface"
-                    android:textStyle="bold" />
-
-                <SeekBar
-                    android:id="@+id/seekGeofenceRadius"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="500"
-                    android:min="50" />
-
                 <com.google.android.material.textfield.TextInputLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/spacing_sm"
                     android:hint="@string/trip_duration_label">
 
                     <com.google.android.material.textfield.TextInputEditText
@@ -398,6 +382,58 @@
                     <CheckBox android:id="@+id/cbThursday" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/day_thursday" android:checked="true" />
                     <CheckBox android:id="@+id/cbFriday" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/day_friday" android:checked="false" />
                     <CheckBox android:id="@+id/cbSaturday" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/day_saturday" android:checked="false" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Diagnostic log (docs/SPEC_EN.md 3.8): lets a non-technical user
+             verify things like the onTaskRemoved restart-after-swipe
+             mechanism without needing adb/a computer at all. -->
+        <com.google.android.material.card.MaterialCardView style="@style/RideCard">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/spacing_md">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/diagnostic_log_card_title"
+                    android:textColor="@color/on_surface"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_xs"
+                    android:layout_marginBottom="@dimen/spacing_sm"
+                    android:text="@string/diagnostic_log_card_desc"
+                    android:textColor="@color/on_surface_muted"
+                    android:textSize="@dimen/text_size_caption" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnShowDiagnosticLog"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="@dimen/spacing_xs"
+                        android:text="@string/diagnostic_log_show_button" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnShareDiagnosticLog"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/spacing_xs"
+                        android:text="@string/diagnostic_log_share_button" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

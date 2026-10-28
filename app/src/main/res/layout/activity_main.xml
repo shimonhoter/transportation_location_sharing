@@ -35,6 +35,16 @@
             app:fabSize="mini" />
 
         <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/btnAddStopHere"
+            style="@style/Widget.MaterialComponents.FloatingActionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="@dimen/spacing_sm"
+            android:contentDescription="@string/add_stop_here_button"
+            app:srcCompat="@android:drawable/ic_menu_mylocation"
+            app:fabSize="mini" />
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/btnHelp"
             style="@style/Widget.MaterialComponents.FloatingActionButton"
             android:layout_width="wrap_content"
@@ -64,6 +74,22 @@
             android:textStyle="bold"
             android:textSize="@dimen/text_size_body" />
     </com.google.android.material.card.MaterialCardView>
+
+    <!-- Pickup-stops "raise hand" banners (docs/SPEC_EN.md 3.9) — one row
+         per currently-active hand-raise, populated programmatically from
+         StopsRepository.observeHandRaises(); empty/gone when none. -->
+    <LinearLayout
+        android:id="@+id/handRaiseBannerContainer"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/spacing_sm"
+        android:layout_marginStart="@dimen/spacing_md"
+        android:layout_marginEnd="@dimen/spacing_md"
+        android:orientation="vertical"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/cardEta"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
 
     <LinearLayout
         android:id="@+id/bottomButtonsRow"
@@ -127,6 +153,22 @@
             app:cornerRadius="28dp"
             app:backgroundTint="@color/status_idle"
             android:contentDescription="@string/private_car_content_description" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRaiseHand"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="@dimen/spacing_md"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:padding="0dp"
+            android:text="@string/raise_hand_icon"
+            android:textSize="22sp"
+            app:cornerRadius="28dp"
+            app:backgroundTint="@color/status_idle"
+            android:contentDescription="@string/raise_hand_content_description" />
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

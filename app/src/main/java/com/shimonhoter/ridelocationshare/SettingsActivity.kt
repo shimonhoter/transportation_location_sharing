@@ -4,14 +4,18 @@ import android.Manifest
 import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.os.Bundle
 import android.widget.CheckBox
+import android.widget.ScrollView
 import android.widget.SeekBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.text.HtmlCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.LocationServices
@@ -21,6 +25,7 @@ import com.shimonhoter.ridelocationshare.data.TimeWindow
 import com.shimonhoter.ridelocationshare.history.RideHistoryStore
 import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.databinding.ActivitySettingsBinding
+import com.shimonhoter.ridelocationshare.util.AppLog
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -32,6 +37,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private var pendingOrigin: GeoPoint? = null
     private var pendingDestination: GeoPoint? = null
+    private var pendingOriginRadius: Int = 150
+    private var pendingDestinationRadius: Int = 150
     private var mapPickerTarget: PickTarget? = null
 
     private enum class PickTarget { ORIGIN, DESTINATION }
@@ -40,10 +47,11 @@ class SettingsActivity : AppCompatActivity() {
         val data = result.data ?: return@registerForActivityResult
         val lat = data.getDoubleExtra(MapPickerActivity.EXTRA_RESULT_LAT, Double.NaN)
         val lon = data.getDoubleExtra(MapPickerActivity.EXTRA_RESULT_LON, Double.NaN)
-        if (lat.isNaN() || lon.isNaN()) return@registerForActivityResult
+        val radius = data.getDoubleExtra(MapPickerActivity.EXTRA_RESULT_RADIUS, Double.NaN)
+        if (lat.isNaN() || lon.isNaN() || radius.isNaN()) return@registerForActivityResult
         when (mapPickerTarget) {
-            PickTarget.ORIGIN -> setOrigin(GeoPoint(lat, lon))
-            PickTarget.DESTINATION -> setDestination(GeoPoint(lat, lon))
+            PickTarget.ORIGIN -> setOrigin(GeoPoint(lat, lon), radius.toInt())
+            PickTarget.DESTINATION -> setDestination(GeoPoint(lat, lon), radius.toInt())
             null -> Unit
         }
     }
@@ -64,14 +72,6 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.etWindowStart.setOnClickListener { pickTime(binding.etWindowStart) }
         binding.etWindowEnd.setOnClickListener { pickTime(binding.etWindowEnd) }
-
-        binding.seekGeofenceRadius.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                updateGeofenceLabel(progress)
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-        })
 
         binding.seekLocationUpdateInterval.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -97,6 +97,38 @@ class SettingsActivity : AppCompatActivity() {
                 Toast.makeText(this@SettingsActivity, R.string.history_cleared_message, Toast.LENGTH_SHORT).show()
             }
         }
+        binding.btnShowDiagnosticLog.setOnClickListener { showDiagnosticLog() }
+        binding.btnShareDiagnosticLog.setOnClickListener { shareDiagnosticLog() }
+    }
+
+    private fun showDiagnosticLog() {
+        val text = AppLog.readAll().takeLast(8000).ifBlank { getString(R.string.diagnostic_log_empty) }
+        val textView = TextView(this).apply {
+            setText(text)
+            typeface = Typeface.MONOSPACE
+            textSize = 11f
+            setPadding(32, 32, 32, 32)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.diagnostic_log_title)
+            .setView(ScrollView(this).apply { addView(textView) })
+            .setPositiveButton(R.string.help_close_button, null)
+            .show()
+    }
+
+    private fun shareDiagnosticLog() {
+        val file = AppLog.fileOrNull()
+        if (file == null) {
+            Toast.makeText(this, R.string.diagnostic_log_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, getString(R.string.diagnostic_log_share_chooser_title)))
     }
 
     private fun showHelp() {
@@ -114,11 +146,10 @@ class SettingsActivity : AppCompatActivity() {
 
         pendingOrigin = prefs.origin
         pendingDestination = prefs.destination
+        pendingOriginRadius = prefs.geofenceRadiusMeters
+        pendingDestinationRadius = prefs.destinationRadiusMeters
         updateOriginLabel()
         updateDestinationLabel()
-
-        binding.seekGeofenceRadius.progress = prefs.geofenceRadiusMeters
-        updateGeofenceLabel(prefs.geofenceRadiusMeters)
 
         binding.seekLocationUpdateInterval.progress = prefs.locationUpdateIntervalSeconds
         updateLocationUpdateIntervalLabel(prefs.locationUpdateIntervalSeconds)
@@ -147,10 +178,6 @@ class SettingsActivity : AppCompatActivity() {
         binding.cbSaturday.isChecked = Calendar.SATURDAY in activeDays
     }
 
-    private fun updateGeofenceLabel(radius: Int) {
-        binding.tvGeofenceRadiusValue.text = getString(R.string.geofence_radius_label) + ": ${radius}m"
-    }
-
     private fun updateLocationUpdateIntervalLabel(seconds: Int) {
         binding.tvLocationUpdateIntervalValue.text = getString(R.string.location_update_interval_label) + ": ${seconds}s"
     }
@@ -159,22 +186,28 @@ class SettingsActivity : AppCompatActivity() {
         binding.tvCorroborationRadiusValue.text = getString(R.string.corroboration_radius_label) + ": ${radius}m"
     }
 
-    private fun setOrigin(point: GeoPoint) {
+    private fun setOrigin(point: GeoPoint, radiusMeters: Int = pendingOriginRadius) {
         pendingOrigin = point
+        pendingOriginRadius = radiusMeters
         updateOriginLabel()
     }
 
-    private fun setDestination(point: GeoPoint) {
+    private fun setDestination(point: GeoPoint, radiusMeters: Int = pendingDestinationRadius) {
         pendingDestination = point
+        pendingDestinationRadius = radiusMeters
         updateDestinationLabel()
     }
 
     private fun updateOriginLabel() {
-        binding.tvOriginValue.text = pendingOrigin?.let { "%.5f, %.5f".format(it.lat, it.lon) } ?: "לא הוגדר"
+        binding.tvOriginValue.text = pendingOrigin?.let {
+            "%.5f, %.5f (רדיוס %dמ')".format(it.lat, it.lon, pendingOriginRadius)
+        } ?: "לא הוגדר"
     }
 
     private fun updateDestinationLabel() {
-        binding.tvDestinationValue.text = pendingDestination?.let { "%.5f, %.5f".format(it.lat, it.lon) } ?: "לא הוגדר"
+        binding.tvDestinationValue.text = pendingDestination?.let {
+            "%.5f, %.5f (רדיוס %dמ')".format(it.lat, it.lon, pendingDestinationRadius)
+        } ?: "לא הוגדר"
     }
 
     private fun useCurrentLocation(target: PickTarget) {
@@ -200,15 +233,18 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun openMapPicker(target: PickTarget) {
         mapPickerTarget = target
-        val initial = when (target) {
-            PickTarget.ORIGIN -> pendingOrigin
-            PickTarget.DESTINATION -> pendingDestination
+        val initialPoint: GeoPoint?
+        val initialRadius: Int
+        when (target) {
+            PickTarget.ORIGIN -> { initialPoint = pendingOrigin; initialRadius = pendingOriginRadius }
+            PickTarget.DESTINATION -> { initialPoint = pendingDestination; initialRadius = pendingDestinationRadius }
         }
         val intent = Intent(this, MapPickerActivity::class.java).apply {
-            initial?.let {
+            initialPoint?.let {
                 putExtra(MapPickerActivity.EXTRA_INITIAL_LAT, it.lat)
                 putExtra(MapPickerActivity.EXTRA_INITIAL_LON, it.lon)
             }
+            putExtra(MapPickerActivity.EXTRA_INITIAL_RADIUS, initialRadius.toDouble())
         }
         pickOnMap.launch(intent)
     }
@@ -247,7 +283,8 @@ class SettingsActivity : AppCompatActivity() {
         prefs.showNickname = binding.switchShowNickname.isChecked
         prefs.origin = pendingOrigin
         prefs.destination = pendingDestination
-        prefs.geofenceRadiusMeters = binding.seekGeofenceRadius.progress
+        prefs.geofenceRadiusMeters = pendingOriginRadius
+        prefs.destinationRadiusMeters = pendingDestinationRadius
         prefs.locationUpdateIntervalSeconds = binding.seekLocationUpdateInterval.progress
         prefs.corroborationRadiusMeters = binding.seekCorroborationRadius.progress
         prefs.historyEnabled = binding.switchHistoryEnabled.isChecked

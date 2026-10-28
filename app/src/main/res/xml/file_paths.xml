@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- AppLog writes to File(context.filesDir, "app_log.txt") — the root
+         of files-path covers it. -->
+    <files-path name="logs" path="." />
+</paths>

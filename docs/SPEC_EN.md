@@ -26,12 +26,13 @@ location" action required in normal operation).
   most recent update from whichever device sent it last. (A single
   designated broadcaster was tried and rejected: it "freezes" the shared
   location the moment that person exits mid-ride.)
-- **Broadcasting requires actual movement**, not just presence inside a
-  geofence — so a passenger who lives near the origin doesn't start
-  broadcasting from home.
-- **A safety timer (expected arrival time + margin) is the primary stop
-  condition**, not route matching — routes vary day to day. Route-deviation
-  detection is only a soft, secondary signal.
+- **Broadcasting requires actual movement**, gated only by the active
+  day/time window — no origin geofence requirement; broadcasting can
+  start anywhere once the device is moving fast enough.
+- **Two parallel stop conditions, whichever fires first**: a safety timer
+  (expected arrival time + margin) and sustained low speed (not route
+  matching — routes vary day to day). Route-deviation detection is only a
+  soft, secondary signal and never stops broadcasting by itself.
 - **"Active days" is a precondition** gating all automatic logic, so the
   app never activates on weekends/holidays.
 - **Privacy:** the server never stores route history — only the single
@@ -42,7 +43,7 @@ location" action required in normal operation).
   broadcasting: X" — switching broadcasters must never indirectly reveal
   where someone got off. Default is no nickname at all.
 - **No manual broadcast control.** Starting and stopping broadcasting is
-  entirely automatic (geofence/movement condition, safety timer, "stay
+  entirely automatic (active window/speed condition, safety timer, "stay
   home" opt-out); the main screen's round button is a status indicator only
   (see 3.6), not a way to force a start or stop.
 
@@ -55,15 +56,51 @@ latest sample, regardless of which device sent it (last-write-wins, no
 per-device history).
 
 ### 3.2 Ride lifecycle
-- **Start condition:** device is within the origin geofence **and** has
-  moved more than a minimum displacement threshold — never movement alone,
-  and never geofence presence alone.
-- **Stop condition (primary):** a safety timer set to the expected trip
-  duration plus a safety margin. This is what actually ends broadcasting
-  for a device, since exact routes vary daily.
-- **Soft secondary signal:** route-deviation detection may flag that the
-  ride seems off the usual path, but never autonomously stops broadcasting
-  by itself.
+- **Start condition:** the active day/time window (3.3) is currently in
+  effect **and** either of two speed-based signals fires — no
+  origin/geofence requirement; broadcasting can start from anywhere once
+  moving fast enough:
+  1. The device's speed exceeds `RideConfig.MOVING_SPEED_THRESHOLD_KMH` on a
+     single GPS fix — always starts the broadcast. Filtered against
+     single-fix GPS speed glitches (a real incident: the broadcast started
+     once while the device was stationary) via
+     `BroadcastService.isReliablyAboveMovingThreshold()` — when the fix
+     reports `Location.getSpeedAccuracyMetersPerSecond()` (API 26+, always
+     present at this app's minSdk), the reading only counts if it clears
+     the threshold even after subtracting its own reported uncertainty
+     margin; a fix with no speed-accuracy data falls back to the plain
+     threshold check, unchanged from before.
+  2. A detected stop-and-go traffic jam (`BroadcastService.isStopAndGoTrafficJam()`):
+     crawling traffic can spend long stretches below
+     `MOVING_SPEED_THRESHOLD_KMH` without a single fix ever cleanly
+     crossing it. The signature isn't a high peak speed — any sample
+     at/above `MOVING_SPEED_THRESHOLD_KMH` would already satisfy signal 1
+     on its own, making a peak-based test nearly unreachable for exactly
+     the sub-threshold crawl it's meant to catch — it's *oscillation*:
+     repeatedly dropping to a near-complete stop and then resuming motion,
+     several times in a short window. Someone walking continuously
+     essentially never does this (pausing once at a junction is normal;
+     stopping and restarting multiple times in under two minutes isn't).
+     Within a rolling window of the last `RideConfig.TRAFFIC_JAM_WINDOW_SECONDS`
+     (90s), at least `TRAFFIC_JAM_MIN_STOP_GO_CYCLES` (2) full transitions
+     from a near-complete stop (`TRAFFIC_JAM_STOP_SPEED_KMH`, 2 km/h or
+     below) to resumed motion (`TRAFFIC_JAM_RESUME_SPEED_KMH`, 3 km/h or
+     above — intentionally well below both `MOVING_SPEED_THRESHOLD_KMH`
+     and normal walking pace, so a brief creep forward counts) starts the
+     broadcast too. This only widens *when else* broadcasting also
+     starts; crossing `MOVING_SPEED_THRESHOLD_KMH` itself is never made
+     less sensitive by it.
+- **Stop condition — three, checked in parallel, whichever triggers first:**
+  1. a safety timer set to the expected trip duration plus a safety margin;
+  2. sustained low speed — the device hasn't exceeded
+     `RideConfig.MOVING_SPEED_THRESHOLD_KMH` for longer than
+     `RideConfig.RECENTLY_MOVING_GRACE_SECONDS` (5 minutes) straight (a
+     passenger got off, or the ride has stopped for good);
+  3. reaching the destination zone — the device's own location falls
+     within `Prefs.destinationRadiusMeters` of `Prefs.destination`, if one
+     is configured (3.4). All three are checked on every location fix in
+     `BroadcastService.handleLocationUpdate`; the safety timer is checked
+     first, but any of the three ends the broadcast.
 - **Manual opt-out:** "Stay home" (main screen) blocks the automatic
   start condition entirely, for a passenger who isn't on the shared ride
   today (or just found out they aren't) instead of taking it as usual —
@@ -74,6 +111,14 @@ per-device history).
   next ~15-minute `RideCheckWorker` tick (3.8), `MainActivity` also starts
   automatic monitoring the moment the app is opened, if the active
   day/window condition (3.3) currently allows it.
+- **Fast first check on (re)start:** a cold GPS fix can take far longer
+  than the configured update interval to arrive — noticeable right after
+  the service restarts from nothing (boot, a `RideCheckWorker` tick, or
+  reopening the app). `BroadcastService.ensureMonitoring()` also checks
+  the fused location provider's cached last-known location immediately
+  (if no older than 30s) alongside registering for live updates, so the
+  start condition can be evaluated right away instead of waiting for the
+  first live fix.
 
 ### 3.3 Active days and time window
 Each user configures which weekdays the automation is allowed to run on,
@@ -86,16 +131,27 @@ configured days/window, WorkManager checks are no-ops.
   ride enters the same code themselves, no admin or shared invite needed.
 - Nickname (free text) + a toggle for whether to show it at all (default:
   hidden/none).
-- Personal origin and destination locations.
-- Geofence radius.
+- Personal origin and destination — each a **circular zone** (center +
+  radius), not just a point.
 - Expected trip duration / time-window margins.
 - Active weekdays and the single daily active time window.
 - Local ETA history toggle (`Prefs.historyEnabled`), off by default; see
   4.5.
 
-Locations can be set two ways in every picker: **"Use current location"**
-or **drop a pin on the map** (map pans under a fixed center pin — the user
-moves the map, not the pin).
+Origin/destination can be set two ways: **"Use current location"** (places
+a zone there at its current/default radius) or **"Pick on map"**, which
+opens `MapPickerActivity` showing that one zone with the exact same
+move/resize drag handles (✛/↔) as alert-zone editing (3.5) — radius is set
+by dragging the edge handle, not a separate numeric field. `Prefs.origin`/
+`Prefs.geofenceRadiusMeters` and `Prefs.destination`/
+`Prefs.destinationRadiusMeters` are the two symmetric pairs. Neither
+affects when broadcasting *starts* (3.2) — the origin zone is used only
+for the ETA "arrival at stop" estimate (4.5), while the destination zone
+is one of the three broadcast *stop* conditions (3.2). Both zones, when
+configured, are drawn as permanent, lightly-tinted reference circles on
+the main map (`setOriginDestZones()` in `map.html`) — green for origin,
+blue for destination — distinct from the red alert-zone circles and not
+editable from the main map itself.
 
 ### 3.5 Personal alert zones
 A user can mark arbitrary circular zones directly on the main map — there is
@@ -131,9 +187,10 @@ background — see 6):
 - **Broadcast indicator (center, larger)** — a status indicator only, not a
   control (not clickable, no tap handler). Always shows an antenna icon,
   green while `RideSessionState.isThisDeviceBroadcasting` is true. Whenever
-  it's false — for any reason: stay-home mode, the movement/geofence
-  start condition not yet met, or an automatic stop (safety timer, outside
-  the active window) — a red "blocked" badge is overlaid on the antenna, so
+  it's false — for any reason: stay-home mode, the speed start condition
+  not yet met, or an automatic stop (safety timer, sustained low speed,
+  reaching the destination zone, outside the active window) — a red
+  "blocked" badge is overlaid on the antenna, so
   a single glance always answers "is my location going out right now",
   regardless of why it isn't. A short toast ("Broadcasting started"/"Not
   broadcasting location") fires on every actual transition.
@@ -159,9 +216,42 @@ the required order:
 1. Foreground location.
 2. Background location.
 3. Notifications.
+4. Battery optimization exemption.
 
-If a permission is denied, the app explains why it's needed and links
-directly to the app's system settings screen.
+If a permission is denied, the app explains why it's needed. For most of
+them the fallback is the app's generic system settings screen
+(`Settings.ACTION_APPLICATION_DETAILS_SETTINGS`) — Android exposes no
+public deep link into the specific Location permission sub-screen, so this
+is the best available target for the two location cards. Two cards do
+better than that generic fallback:
+- **Notifications** has an exact, official deep link
+  (`Settings.ACTION_APP_NOTIFICATION_SETTINGS` +
+  `Settings.EXTRA_APP_PACKAGE`) — a dedicated button opens the app's
+  notification settings screen directly, no navigation needed.
+- **Battery optimization** (a card shown on all devices, not just Xiaomi)
+  uses `Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` with a
+  `package:` URI — this pops a direct one-tap system grant dialog rather
+  than a settings screen at all, via the standard
+  `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission. Checked via
+  `PowerManager.isIgnoringBatteryOptimizations()`.
+
+**Xiaomi/MIUI/HyperOS devices** (detected via `Build.MANUFACTURER`) see one
+additional card: standard Android permissions aren't enough there, since
+MIUI has its own separate autostart/battery-saver/notification layer that
+Android exposes no public API to request or query. The card explains the
+four settings to configure manually (autostart, battery saver → no
+restrictions, lock the app in the Recents task switcher, notifications
+toggle) and a checkbox to self-confirm having done so
+(`Prefs.miuiBackgroundSettingsConfirmed`) — necessarily self-reported,
+unlike the other checkbox-free permission cards which verify real grant
+state via `checkSelfPermission`/`PowerManager`. A best-effort button also
+tries to jump straight to MIUI's autostart management screen via known but
+undocumented/unofficial component names (`com.miui.securitycenter`'s
+`AutoStartManagementActivity`, then the `miui.intent.action.OP_AUTO_START`
+action) — these have changed across MIUI versions before and aren't
+guaranteed to resolve, so it silently falls back to the generic app
+settings screen if neither does. "Lock the app in Recents" has no API at
+all on any OEM — it stays a manual, text-only instruction.
 
 ### 3.8 Background scheduling
 A WorkManager periodic job runs roughly every 15 minutes, checks whether
@@ -172,6 +262,107 @@ operation. In addition, `BootReceiver` listens for the system's
 device finishes starting up, so the app resumes automatic background
 monitoring right after a phone reboot instead of waiting for the next
 periodic check or for the user to open the app manually.
+
+**Surviving the app being swiped away from Recents:** `BroadcastService`
+is declared with `android:stopWithTask="false"`, and additionally
+overrides `onTaskRemoved()` to schedule an immediate restart via
+`AlarmManager` (using `PendingIntent.getForegroundService`) whenever
+automation should still be running (currently broadcasting, or still
+inside the active window) — closing the app from Recents is the single
+most common reason a "runs in the background" service actually stops,
+since the default Android behavior ties a service's lifetime to its
+hosting task unless told otherwise. This reduces, but on some OEMs
+(Xiaomi/MIUI, Huawei, Samsung, OnePlus) cannot fully eliminate,
+aggressive background-app killing — those still require the user to
+exempt the app from battery optimization in device settings. Android
+itself gives the user no way to override this: an app cannot block the
+swipe-to-dismiss gesture, only make it harmless by restarting quickly
+after it happens — the restart is what `onTaskRemoved()` buys.
+
+**Verifying the restart without a computer:** `AppLog` (used throughout
+the service) is an on-device rolling log file (`filesDir/app_log.txt`,
+capped at 256KB), not just a Logcat sink. `onCreate()`, `onStartCommand()`
+and `onTaskRemoved()` all log through it, so swiping the app away and
+reopening the diagnostic log (Settings → "יומן אבחון" / "Diagnostic log")
+shows the actual sequence — "App task removed, scheduling restart in
+1000ms" followed shortly by a fresh "Service created" / "onStartCommand
+action=ACTION_AUTO_START" — without needing `adb logcat` at all. A
+"share" button next to it sends the raw file via `FileProvider` +
+`ACTION_SEND` to any other app (messaging, email) for handing off to
+support.
+
+### 3.9 Pickup stops and "raise hand"
+
+**Stops.** Any user can mark pickup-stop candidate points — tapping the
+map in a new 🚏 edit mode (identical drag/delete interaction to alert-zone
+editing in 3.5, just point-only: no radius) or a one-tap "add at current
+location" button (`MainActivity.addStopCandidateAtCurrentLocation()`).
+Each device's own candidates are stored locally (`Prefs.myStopCandidates`)
+and mirrored to Firebase (`StopsRepository.syncOwnCandidates`) under
+`rideLocation/rides/<rideCode>/stopCandidates/<uid>`.
+
+Every device then computes the same shared, named stop list from that raw
+data — entirely client-side, the same way `FirebaseLocationRepository`'s
+own location aggregation is (`StopsRepository.computeSharedStops`): all
+users' candidate points are merged wherever they fall within
+`RideConfig.STOP_MERGE_RADIUS_METERS` (100m) of each other
+(`StopsRepository.cluster` — a deterministic greedy single-pass merge,
+sorted first so every device reaches the same grouping) into one stop at
+the group's centroid. Stops are named `"תחנה 1"`, `"תחנה 2"`, … in
+ascending order of their **observed position along the route's actual
+timeline**, not straight-line distance — a route that bends or loops can
+have a stop that's geometrically close to the start but reached late,
+which beeline distance would get wrong.
+
+**Route origin.** Whichever device is first to start broadcasting on a
+given day "claims" that day as the route's origin — both its location
+*and* start time — via a Firebase transaction
+(`StopsRepository.claimRouteOriginOfDay`, called from
+`BroadcastService.beginBroadcasting()`) on
+`rideLocation/rides/<rideCode>/routeOriginHistory/<yyyy-MM-dd>` — the
+transaction only writes if that day's entry is still empty, so exactly
+one device "wins" each day regardless of how many start broadcasting
+around the same time. The origin location used as a distance reference
+(see below) is the average of up to
+`RideConfig.ROUTE_ORIGIN_HISTORY_RETENTION_DAYS` (30) days of this
+history; with none yet (a brand-new group), it falls back to the
+centroid of all current candidates instead.
+
+**Stop ordering.** Any device watching the shared ride location logs,
+once per stop per day, how long after that day's route-start time the
+ride was observed entering a stop's zone
+(`MainActivity.recordStopArrivalsIfNeeded` →
+`StopsRepository.recordStopArrival`, also a "first write wins"
+transaction, at `rideLocation/rides/<rideCode>/stopArrivalHistory/<yyyy-MM-dd>/<roundedLatLon>`).
+Stops are then ordered by the average of that elapsed time across the
+same retention window — the actual observed timeline, immune to a route
+that bends or loops. A stop with no arrival samples yet (just added, or
+none anywhere in a brand-new group) is positioned using the group's own
+observed pace (total elapsed time ÷ total distance, across stops that DO
+have samples) applied to its own straight-line distance from the route
+origin, so every stop's sort key stays in the same unit (milliseconds)
+rather than mixing distance and time directly; with zero samples
+anywhere yet, that pace is undefined and ordering falls back to plain
+distance from the origin — self-correcting automatically as real
+arrival history accumulates.
+
+**Raise hand.** A ✋ button on the main screen lets a waiting passenger
+announce they're at a specific stop and want the ride to come by. If
+their own candidates resolve to exactly one shared stop, it's used
+automatically; with more than one, a chooser dialog asks which. This
+writes `rideLocation/rides/<rideCode>/handRaises/<uid>` = `{stopId,
+nickname}` (nickname only if `Prefs.showNickname` is on, mirroring how
+the live broadcast itself handles nicknames) — visible to every device
+watching the ride, not just the raiser's own: the relevant stop's map
+marker is highlighted and a banner naming the rider and stop appears
+(`MainActivity.renderHandRaiseBanners`/`pushSharedStopsToMap`). Tapping
+the button again cancels it manually. It also auto-clears
+(`MainActivity.checkHandRaiseAutoClear`) once the raiser's own device
+observes the shared ride location enter the stop's zone and then leave
+it again — never just because the ride hasn't arrived yet. This check
+runs on the raiser's own device as it watches the shared location, same
+as everything else driving this screen; it needs that device's app open
+to fire, the same expectation the broadcasting device itself already has.
 
 ## 4. Architecture & Technology
 
@@ -240,7 +431,7 @@ periodic check or for the user to open the app manually.
   reported speed exceeded `RideConfig.MOVING_SPEED_THRESHOLD_KMH` (7 km/h),
   reset to none at the start of every new broadcast session — and a device
   counts toward the aggregate if it is currently over that speed **or**
-  was within `RideConfig.RECENTLY_MOVING_GRACE_SECONDS` (90s). This grace
+  was within `RideConfig.RECENTLY_MOVING_GRACE_SECONDS` (5 minutes). This grace
   window is what keeps the ride on the map through a brief stop (a red
   light, momentary traffic) without instantaneous 0 km/h readings kicking
   everyone out of the aggregate. If no device currently qualifies:
@@ -255,11 +446,13 @@ periodic check or for the user to open the app manually.
     broadcasting, automatically or by mistake) from corrupting or becoming
     the sole reported ride location once their walking-pace samples age
     out of the grace window.
-  Broadcasting itself is never speed-gated; a device keeps posting on
-  every fix for as long as it's broadcasting, and only stops via the
-  safety timer or geofence/time-window condition (docs section 3.2) — the
-  grace-window exclusion only affects whether that device's samples are
-  counted in the aggregate, not whether it keeps transmitting.
+  A device keeps posting on every fix for as long as it's broadcasting,
+  and only stops via the two stop conditions in 3.2 (safety timer, or
+  this same grace window elapsing without exceeding the speed threshold)
+  — the grace-window exclusion from the aggregate happens immediately
+  when it starts, while the actual stop only fires once the full window
+  has elapsed; a device can therefore be excluded from the shown
+  aggregate for a while before its own broadcast actually ends.
 - **Direction of travel:** the map's direction arrow and rotation follow the
   reported (aggregated) location's own progression between updates —
   `map.html`'s `bearingDegrees()` computed from consecutive fixes of

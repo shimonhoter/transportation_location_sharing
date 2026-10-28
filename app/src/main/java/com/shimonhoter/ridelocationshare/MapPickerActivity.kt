@@ -7,9 +7,10 @@ import com.shimonhoter.ridelocationshare.databinding.ActivityMapPickerBinding
 import com.shimonhoter.ridelocationshare.ui.loadRideMap
 
 /**
- * "Drop a pin" location picker (docs/SPEC_EN.md 3.4): the map pans under a
- * fixed center pin, and confirming reads the map's current center back out
- * of the WebView via JS, rather than tracking a draggable marker.
+ * Origin/destination zone picker (docs/SPEC_EN.md 3.4): shows a single
+ * circle with the same ✛ move / ↔ resize drag handles as alert-zone
+ * editing on the main map, so defining a zone here uses the identical
+ * tool/interaction — just one always-present zone instead of a list.
  */
 class MapPickerActivity : AppCompatActivity() {
 
@@ -22,15 +23,24 @@ class MapPickerActivity : AppCompatActivity() {
 
         val initialLat = intent.getDoubleExtra(EXTRA_INITIAL_LAT, 32.0853)
         val initialLon = intent.getDoubleExtra(EXTRA_INITIAL_LON, 34.7818)
+        val initialRadius = intent.getDoubleExtra(EXTRA_INITIAL_RADIUS, 150.0)
 
-        binding.webViewPicker.loadRideMap(bridge = null, mode = "pick", centerLat = initialLat, centerLon = initialLon, zoom = 15.0)
+        binding.webViewPicker.loadRideMap(
+            bridge = null,
+            mode = "pick_zone",
+            centerLat = initialLat,
+            centerLon = initialLon,
+            zoom = 15.0,
+            radiusMeters = initialRadius
+        )
 
         binding.btnConfirmLocation.setOnClickListener {
-            binding.webViewPicker.evaluateJavascript("getCenter()") { raw ->
-                val point = parseCenterResult(raw) ?: return@evaluateJavascript
+            binding.webViewPicker.evaluateJavascript("getPickedZone()") { raw ->
+                val zone = parsePickedZone(raw) ?: return@evaluateJavascript
                 val result = Intent().apply {
-                    putExtra(EXTRA_RESULT_LAT, point.first)
-                    putExtra(EXTRA_RESULT_LON, point.second)
+                    putExtra(EXTRA_RESULT_LAT, zone.first)
+                    putExtra(EXTRA_RESULT_LON, zone.second)
+                    putExtra(EXTRA_RESULT_RADIUS, zone.third)
                 }
                 setResult(RESULT_OK, result)
                 finish()
@@ -38,18 +48,21 @@ class MapPickerActivity : AppCompatActivity() {
         }
     }
 
-    private fun parseCenterResult(raw: String?): Pair<Double, Double>? {
+    private fun parsePickedZone(raw: String?): Triple<Double, Double, Double>? {
         val unquoted = raw?.trim('"') ?: return null
         val parts = unquoted.split(",")
         val lat = parts.getOrNull(0)?.toDoubleOrNull() ?: return null
         val lon = parts.getOrNull(1)?.toDoubleOrNull() ?: return null
-        return lat to lon
+        val radius = parts.getOrNull(2)?.toDoubleOrNull() ?: return null
+        return Triple(lat, lon, radius)
     }
 
     companion object {
         const val EXTRA_INITIAL_LAT = "initial_lat"
         const val EXTRA_INITIAL_LON = "initial_lon"
+        const val EXTRA_INITIAL_RADIUS = "initial_radius"
         const val EXTRA_RESULT_LAT = "result_lat"
         const val EXTRA_RESULT_LON = "result_lon"
+        const val EXTRA_RESULT_RADIUS = "result_radius"
     }
 }

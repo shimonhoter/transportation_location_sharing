@@ -130,6 +130,110 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/permission_grant_button" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnOpenNotificationSettings"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_xs"
+                    android:text="@string/permission_notifications_open_settings_button" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Battery optimization exemption (docs/SPEC_EN.md 3.7): shown on all
+             devices, not just Xiaomi — Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+             is a standard Android API that pops a direct one-tap system
+             dialog, no settings navigation needed, unlike the location/MIUI
+             cards above/below. -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardBatteryOptimization"
+            style="@style/RideCard">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/spacing_md">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/permission_battery_title"
+                    android:textColor="@color/on_surface"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_xs"
+                    android:layout_marginBottom="@dimen/spacing_sm"
+                    android:text="@string/permission_battery_desc"
+                    android:textColor="@color/on_surface_muted"
+                    android:textSize="@dimen/text_size_caption" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnGrantBatteryOptimization"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/permission_battery_button" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Shown only on detected Xiaomi/MIUI/HyperOS devices (see
+             PermissionsActivity.isMiuiDevice): standard Android permissions
+             above aren't enough there — MIUI has its own separate
+             autostart/battery/notification layer with no query API, so this
+             is a self-reported checklist, not a verified permission. -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardMiuiSettings"
+            style="@style/RideCard"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/spacing_md">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/permission_miui_title"
+                    android:textColor="@color/on_surface"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_xs"
+                    android:layout_marginBottom="@dimen/spacing_sm"
+                    android:text="@string/permission_miui_desc"
+                    android:textColor="@color/on_surface_muted"
+                    android:textSize="@dimen/text_size_caption" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnOpenMiuiAutostart"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="@dimen/spacing_xs"
+                    android:text="@string/permission_miui_autostart_button" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnOpenMiuiSettings"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="@dimen/spacing_sm"
+                    android:text="@string/permission_miui_open_settings_button" />
+
+                <CheckBox
+                    android:id="@+id/cbMiuiSettingsConfirmed"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/permission_miui_checkbox_label"
+                    android:textColor="@color/on_surface" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

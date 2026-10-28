@@ -27,6 +27,7 @@ import com.shimonhoter.ridelocationshare.alerts.AlertZoneManager
 import com.shimonhoter.ridelocationshare.config.RideConfig
 import com.shimonhoter.ridelocationshare.data.Prefs
 import com.shimonhoter.ridelocationshare.remote.FirebaseLocationRepository
+import com.shimonhoter.ridelocationshare.remote.StopsRepository
 import com.shimonhoter.ridelocationshare.util.ActiveWindow
 import com.shimonhoter.ridelocationshare.util.AppLog
 import com.shimonhoter.ridelocationshare.util.GeoUtil
@@ -38,10 +39,14 @@ import kotlinx.coroutines.launch
 
 /**
  * Owns this device's participation in the current ride: decides (in
- * automatic mode) when to start broadcasting based on the movement + geofence
- * condition, writes this device's location to Firebase while broadcasting,
- * and separately listens for the shared ride location for the UI and for
- * on-device alert-zone checks (docs/SPEC_EN.md sections 3.1-3.6).
+ * automatic mode) when to start broadcasting based on the active window +
+ * speed condition (crossing [RideConfig.MOVING_SPEED_THRESHOLD_KMH], or a
+ * detected stop-and-go traffic jam — see [isStopAndGoTrafficJam]), and when
+ * to stop it (safety timer, sustained low speed, or reaching the
+ * destination zone — whichever comes first); writes this device's location
+ * to Firebase while broadcasting, and separately listens for the shared
+ * ride location for the UI and for on-device alert-zone checks
+ * (docs/SPEC_EN.md sections 3.1-3.6).
  *
  * Every caller must go through [startAutomatic] or [stop] — a single call
  * path per action.
@@ -51,17 +56,19 @@ class BroadcastService : Service() {
     private lateinit var prefs: Prefs
     private lateinit var fusedClient: FusedLocationProviderClient
     private val locationRepository = FirebaseLocationRepository()
+    private val stopsRepository = StopsRepository()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var locationCallback: LocationCallback? = null
     private var sharedLocationListener: ValueEventListener? = null
     private var sharedLocationListenerRideCode: String? = null
     private var isBroadcastingLocally = false
-    private var geofenceAnchor: Location? = null
     private var lastMovingAtMillis: Long = 0L
+    private val recentSpeedSamplesKmh = ArrayDeque<Pair<Long, Double>>()
 
     override fun onCreate() {
         super.onCreate()
+        AppLog.i(TAG, "Service created")
         isRunning = true
         prefs = Prefs(this)
         fusedClient = LocationServices.getFusedLocationProviderClient(this)
@@ -98,6 +105,7 @@ class BroadcastService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
+        AppLog.i(TAG, "onStartCommand action=${intent?.action}")
 
         when (intent?.action) {
             ACTION_STOP -> {
@@ -122,6 +130,44 @@ class BroadcastService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /** Swiping the app away from Recents removes its task — on stock Android
+     * and most OEMs this then kills this foreground service along with it
+     * (a plain `startForegroundService()` from an Activity doesn't survive
+     * that the way a genuinely independent background app would), which is
+     * exactly the "stops working once the app is closed" symptom. If
+     * automation should still be running, schedule an immediate restart via
+     * AlarmManager — more reliable than restarting synchronously here,
+     * since this process may already be mid-teardown by the time this
+     * runs. This can only reduce, not fully eliminate, OEM-specific
+     * aggressive background killing (Xiaomi/Huawei/Samsung etc.), which
+     * still needs the user to whitelist the app in battery settings. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val shouldKeepRunning = isBroadcastingLocally ||
+            (!prefs.isPrivateCarActive() && ActiveWindow.isNowActive(prefs))
+        if (!shouldKeepRunning) {
+            AppLog.i(TAG, "App task removed, automation not due to run — not scheduling a restart")
+            return
+        }
+        AppLog.i(TAG, "App task removed, scheduling restart in ${RESTART_DELAY_MILLIS}ms")
+
+        val restartIntent = Intent(applicationContext, BroadcastService::class.java)
+            .setAction(ACTION_AUTO_START)
+            .setPackage(packageName)
+        val pendingIntent = android.app.PendingIntent.getForegroundService(
+            applicationContext,
+            RESTART_REQUEST_CODE,
+            restartIntent,
+            android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(android.app.AlarmManager::class.java)
+        alarmManager?.set(
+            android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            android.os.SystemClock.elapsedRealtime() + RESTART_DELAY_MILLIS,
+            pendingIntent
+        )
+    }
 
     /** Tears down the current location callback and rebuilds it, so a changed
      * [Prefs.locationUpdateIntervalSeconds] takes effect immediately rather than
@@ -161,6 +207,19 @@ class BroadcastService : Service() {
         }
         locationCallback = callback
         fusedClient.requestLocationUpdates(request, callback, Looper.getMainLooper())
+
+        // A cold GPS fix can take far longer than locationUpdateIntervalSeconds
+        // to arrive (tens of seconds), which is exactly the delay noticed right
+        // after the service (re)starts from nothing — boot, a WorkManager tick,
+        // or the app being reopened. The fused provider's last-known (cached)
+        // location is usually available instantly; using it here — if fresh
+        // enough to trust — lets the auto-start condition be evaluated right
+        // away instead of waiting for the first live update.
+        fusedClient.lastLocation.addOnSuccessListener { cached ->
+            if (cached != null && System.currentTimeMillis() - cached.time <= LAST_LOCATION_MAX_AGE_MILLIS) {
+                handleLocationUpdate(cached)
+            }
+        }
     }
 
     private fun handleLocationUpdate(location: Location) {
@@ -181,11 +240,34 @@ class BroadcastService : Service() {
                 locationRepository.postLocation(rideCode, location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis)
             }
 
+            // Stop condition: time, sustained low speed, or reaching the
+            // destination zone — whichever comes first. The safety timer is
+            // checked first since it's the cheapest comparison, but any of
+            // the three can end the broadcast.
             if (System.currentTimeMillis() >= rideEndDeadlineMillis()) {
                 AppLog.i(TAG, "Safety timer expired, ending broadcast for this device")
                 stopBroadcasting()
                 stopSelf()
                 return
+            }
+
+            val stoppedMovingMillis = System.currentTimeMillis() - lastMovingAtMillis
+            if (lastMovingAtMillis > 0 && stoppedMovingMillis >= RideConfig.RECENTLY_MOVING_GRACE_SECONDS * 1000) {
+                AppLog.i(TAG, "No movement above threshold for ${RideConfig.RECENTLY_MOVING_GRACE_SECONDS.toInt()}s, ending broadcast for this device")
+                stopBroadcasting()
+                stopSelf()
+                return
+            }
+
+            val destination = prefs.destination
+            if (destination != null) {
+                val distanceToDestination = GeoUtil.distanceMeters(location.latitude, location.longitude, destination.lat, destination.lon)
+                if (distanceToDestination <= prefs.destinationRadiusMeters) {
+                    AppLog.i(TAG, "Entered destination zone, ending broadcast for this device")
+                    stopBroadcasting()
+                    stopSelf()
+                    return
+                }
             }
         }
 
@@ -195,28 +277,78 @@ class BroadcastService : Service() {
         }
     }
 
-    /** Start condition: inside the origin geofence AND has moved beyond the minimum threshold since. */
+    /** Start condition: moving faster than [RideConfig.MOVING_SPEED_THRESHOLD_KMH]
+     * (filtered against single-fix GPS speed glitches, see
+     * [isReliablyAboveMovingThreshold]) OR a stop-and-go traffic jam pattern
+     * (see [isStopAndGoTrafficJam]) — no longer gated on being near a
+     * configured origin point, so broadcasting can start anywhere, purely
+     * from the active window (this method is only reached while the service
+     * is running, which already requires the window to be active — see
+     * ActiveWindow.isNowActive callers) and speed. */
     private fun checkAutoStartCondition(location: Location) {
         if (prefs.isPrivateCarActive()) return
-        val origin = prefs.origin ?: return
-        val distanceFromOrigin = GeoUtil.distanceMeters(location.latitude, location.longitude, origin.lat, origin.lon)
+        val speedKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
+        recordRecentSpeedSample(speedKmh)
 
-        if (distanceFromOrigin > prefs.geofenceRadiusMeters) {
-            geofenceAnchor = null
-            return
+        if (isReliablyAboveMovingThreshold(location, speedKmh)) {
+            AppLog.i(TAG, "Movement threshold reached, starting broadcast")
+            beginBroadcasting(location)
+        } else if (isStopAndGoTrafficJam()) {
+            AppLog.i(TAG, "Stop-and-go traffic pattern detected, starting broadcast")
+            beginBroadcasting(location)
         }
+    }
 
-        val anchor = geofenceAnchor
-        if (anchor == null) {
-            geofenceAnchor = location
-            return
-        }
+    /** Crossing [RideConfig.MOVING_SPEED_THRESHOLD_KMH] always starts the
+     * broadcast — but a single isolated GPS fix can misreport speed well
+     * above the real value (multipath reflections, a bad Doppler read),
+     * which is indistinguishable from genuine movement on that one fix
+     * alone and was observed starting a broadcast while the device was
+     * actually stationary. [Location.getSpeedAccuracyMetersPerSecond] (API
+     * 26+, always present at this app's minSdk) gives that same fix's own
+     * reported uncertainty for its speed estimate — requiring the reading to
+     * clear the threshold even after subtracting that margin rejects a
+     * low-confidence glitch without adding any delay for genuinely fast
+     * movement, whose reported accuracy is normally tight. Devices/fixes
+     * that don't report speed accuracy at all fall back to the plain
+     * threshold check, unchanged from before. */
+    private fun isReliablyAboveMovingThreshold(location: Location, speedKmh: Double): Boolean {
+        if (speedKmh <= RideConfig.MOVING_SPEED_THRESHOLD_KMH) return false
+        if (!location.hasSpeedAccuracy()) return true
+        val speedAccuracyKmh = location.speedAccuracyMetersPerSecond * 3.6
+        return speedKmh - speedAccuracyKmh > RideConfig.MOVING_SPEED_THRESHOLD_KMH
+    }
 
-        val movedSinceAnchor = GeoUtil.distanceMeters(anchor.latitude, anchor.longitude, location.latitude, location.longitude)
-        if (movedSinceAnchor >= RideConfig.MIN_MOVEMENT_METERS) {
-            AppLog.i(TAG, "Movement threshold reached inside origin geofence, starting broadcast")
-            beginBroadcasting()
+    private fun recordRecentSpeedSample(speedKmh: Double) {
+        val now = System.currentTimeMillis()
+        recentSpeedSamplesKmh.addLast(now to speedKmh)
+        val windowStart = now - RideConfig.TRAFFIC_JAM_WINDOW_SECONDS.toLong() * 1000
+        while (recentSpeedSamplesKmh.isNotEmpty() && recentSpeedSamplesKmh.first().first < windowStart) {
+            recentSpeedSamplesKmh.removeFirst()
         }
+    }
+
+    /** Stop-and-go traffic: counts full stop-then-resume transitions within
+     * the recent window — not a high peak speed, which a sample at/above
+     * [RideConfig.MOVING_SPEED_THRESHOLD_KMH] would already satisfy via the
+     * main check on its own, making a peak-based test nearly unreachable
+     * for the sub-threshold crawl this is meant to catch (see
+     * RideConfig.TRAFFIC_JAM_WINDOW_SECONDS doc for the full rationale).
+     * Walking continuously essentially never oscillates between a
+     * near-complete stop and resumed motion several times in under two
+     * minutes the way traffic-light-paced crawling does. */
+    private fun isStopAndGoTrafficJam(): Boolean {
+        var cycles = 0
+        var stoppedSinceLastCycle = false
+        for ((_, speedKmh) in recentSpeedSamplesKmh) {
+            if (speedKmh <= RideConfig.TRAFFIC_JAM_STOP_SPEED_KMH) {
+                stoppedSinceLastCycle = true
+            } else if (stoppedSinceLastCycle && speedKmh >= RideConfig.TRAFFIC_JAM_RESUME_SPEED_KMH) {
+                cycles++
+                stoppedSinceLastCycle = false
+            }
+        }
+        return cycles >= RideConfig.TRAFFIC_JAM_MIN_STOP_GO_CYCLES
     }
 
     /** Computed live from current prefs on every check, rather than cached at
@@ -225,11 +357,17 @@ class BroadcastService : Service() {
     private fun rideEndDeadlineMillis(): Long =
         prefs.rideStartTimeMillis + (prefs.tripDurationMinutes + prefs.safetyMarginMinutes) * 60_000L
 
-    private fun beginBroadcasting() {
+    /** [location] is only used to try claiming today's route-origin
+     * (docs/SPEC_EN.md 3.9) — a best-effort, fire-and-forget Firebase
+     * write that only actually takes effect the first time any device
+     * does this on a given day. */
+    private fun beginBroadcasting(location: Location) {
         isBroadcastingLocally = true
         lastMovingAtMillis = 0L
+        recentSpeedSamplesKmh.clear()
         prefs.isBroadcasting = true
         prefs.rideStartTimeMillis = System.currentTimeMillis()
+        serviceScope.launch { stopsRepository.claimRouteOriginOfDay(prefs.rideCode, location.latitude, location.longitude) }
         RideSessionState.isThisDeviceBroadcasting.postValue(true)
         updateNotification()
         ensureMonitoring()
@@ -237,7 +375,6 @@ class BroadcastService : Service() {
 
     private fun stopBroadcasting() {
         isBroadcastingLocally = false
-        geofenceAnchor = null
         prefs.isBroadcasting = false
         RideSessionState.isThisDeviceBroadcasting.postValue(false)
         // Best-effort: drop this device out of the aggregate immediately rather
@@ -285,6 +422,12 @@ class BroadcastService : Service() {
         private const val ACTION_AUTO_START = "com.shimonhoter.ridelocationshare.action.AUTO_START"
         private const val ACTION_STOP = "com.shimonhoter.ridelocationshare.action.STOP"
         private const val ACTION_REFRESH_SETTINGS = "com.shimonhoter.ridelocationshare.action.REFRESH_SETTINGS"
+
+        /** A cached last-known location older than this is too stale to trust for an immediate auto-start check (see ensureMonitoring). */
+        private const val LAST_LOCATION_MAX_AGE_MILLIS = 30_000L
+
+        private const val RESTART_REQUEST_CODE = 1001
+        private const val RESTART_DELAY_MILLIS = 1_000L
 
         /** Whether an instance of this service is currently alive. Lets callers
          * (e.g. the Settings screen) decide whether it's meaningful to push a

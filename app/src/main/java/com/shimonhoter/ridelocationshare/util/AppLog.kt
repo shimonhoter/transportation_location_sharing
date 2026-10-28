@@ -40,4 +40,8 @@ object AppLog {
     }
 
     fun readAll(): String = if (::logFile.isInitialized && logFile.exists()) logFile.readText() else ""
+
+    /** For sharing the raw file (e.g. via FileProvider) — null if [init] was
+     * never called or nothing has been logged yet. */
+    fun fileOrNull(): File? = if (::logFile.isInitialized && logFile.exists()) logFile else null
 }

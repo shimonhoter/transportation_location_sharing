@@ -1,35 +1,51 @@
 package com.shimonhoter.ridelocationshare
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.text.HtmlCompat
 import androidx.lifecycle.lifecycleScope
+import com.google.android.gms.location.LocationServices
 import com.google.firebase.database.ValueEventListener
 import com.shimonhoter.ridelocationshare.config.RideConfig
 import com.shimonhoter.ridelocationshare.data.AlertZone
+import com.shimonhoter.ridelocationshare.data.GeoPoint
 import com.shimonhoter.ridelocationshare.data.Prefs
+import com.shimonhoter.ridelocationshare.data.StopCandidate
 import com.shimonhoter.ridelocationshare.databinding.ActivityMainBinding
 import com.shimonhoter.ridelocationshare.history.RideEtaEstimator
 import com.shimonhoter.ridelocationshare.history.RideHistoryStore
+import com.shimonhoter.ridelocationshare.remote.ActiveHandRaise
 import com.shimonhoter.ridelocationshare.remote.FirebaseLocationRepository
 import com.shimonhoter.ridelocationshare.remote.RideLocation
+import com.shimonhoter.ridelocationshare.remote.SharedStop
+import com.shimonhoter.ridelocationshare.remote.SharedStopsObservation
+import com.shimonhoter.ridelocationshare.remote.StopsRepository
 import com.shimonhoter.ridelocationshare.service.BroadcastService
 import com.shimonhoter.ridelocationshare.service.RideSessionState
 import com.shimonhoter.ridelocationshare.ui.MapBridge
 import com.shimonhoter.ridelocationshare.ui.UiKit
 import com.shimonhoter.ridelocationshare.ui.loadRideMap
 import com.shimonhoter.ridelocationshare.util.ActiveWindow
+import com.shimonhoter.ridelocationshare.util.GeoUtil
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
@@ -38,8 +54,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private lateinit var historyStore: RideHistoryStore
     private val repository = FirebaseLocationRepository()
+    private val stopsRepository = StopsRepository()
     private var locationListener: ValueEventListener? = null
     private var locationListenerRideCode: String? = null
+    private var sharedStopsObservation: SharedStopsObservation? = null
+    private var handRaisesListener: ValueEventListener? = null
+    private var todayRouteStartListener: ValueEventListener? = null
+    private var stopsListenerRideCode: String? = null
+    private var latestSharedStops: List<SharedStop> = emptyList()
+    private var latestHandRaises: List<ActiveHandRaise> = emptyList()
+    private var todayRouteStartMillis: Long? = null
+    private val recordedStopArrivalKeysToday = mutableSetOf<String>()
+    private val todayDateKeyFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     private var mapReady = false
     private var lastRenderedBroadcasting: Boolean? = null
     private var privateCarAutoOffJob: Job? = null
@@ -56,6 +82,9 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 mapReady = true
                 pushAlertZonesToMap()
+                pushOriginDestZonesToMap()
+                pushMyStopCandidatesToMap()
+                pushSharedStopsToMap()
                 RideSessionState.currentLocation.value?.let { renderRideLocation(it) }
             }
         }
@@ -66,7 +95,10 @@ class MainActivity : AppCompatActivity() {
             onZoneAdded = { lat, lon -> runOnUiThread { addAlertZone(lat, lon) } },
             onZoneMoved = { id, lat, lon -> runOnUiThread { moveAlertZone(id, lat, lon) } },
             onZoneResized = { id, radiusMeters -> runOnUiThread { resizeAlertZone(id, radiusMeters) } },
-            onZoneDeleted = { id -> runOnUiThread { deleteAlertZone(id) } }
+            onZoneDeleted = { id -> runOnUiThread { deleteAlertZone(id) } },
+            onStopAdded = { lat, lon -> runOnUiThread { addStopCandidate(lat, lon) } },
+            onStopMoved = { id, lat, lon -> runOnUiThread { moveStopCandidate(id, lat, lon) } },
+            onStopDeleted = { id -> runOnUiThread { deleteStopCandidate(id) } }
         )
         binding.webViewMap.loadRideMap(
             bridge = mapBridge,
@@ -80,6 +112,9 @@ class MainActivity : AppCompatActivity() {
             startActivity(android.content.Intent(this, SettingsActivity::class.java))
         }
         binding.btnHelp.setOnClickListener { showHelp() }
+        binding.btnAddStopHere.setOnClickListener { addStopCandidateAtCurrentLocation() }
+        binding.btnRaiseHand.setOnClickListener { toggleHandRaise() }
+        renderRaiseHandButton()
 
         // Don't make the user wait for the next ~15-minute RideCheckWorker
         // tick — if automation is currently allowed to run at all, start
@@ -96,6 +131,8 @@ class MainActivity : AppCompatActivity() {
         RideSessionState.currentLocation.observe(this) { location ->
             renderStatus(location)
             refreshEta()
+            checkHandRaiseAutoClear(location)
+            recordStopArrivalsIfNeeded(location)
         }
 
         // Reflects whether THIS device is broadcasting, independent of the
@@ -123,6 +160,29 @@ class MainActivity : AppCompatActivity() {
         renderPrivateCarToggle()
         renderBroadcastToggle(RideSessionState.isThisDeviceBroadcasting.value == true)
         schedulePrivateCarAutoOffRefresh()
+        if (mapReady) {
+            pushOriginDestZonesToMap()
+            pushMyStopCandidatesToMap()
+        }
+
+        stopsListenerRideCode = rideCode
+        sharedStopsObservation = stopsRepository.observeSharedStops(
+            rideCode,
+            nameFormat = { n -> getString(R.string.stop_name_format, n) }
+        ) { stops ->
+            latestSharedStops = stops
+            pushSharedStopsToMap()
+            checkHandRaiseAutoClear(RideSessionState.currentLocation.value)
+        }
+        handRaisesListener = stopsRepository.observeHandRaises(rideCode) { raises ->
+            latestHandRaises = raises
+            pushSharedStopsToMap()
+            renderHandRaiseBanners()
+        }
+        todayRouteStartListener = stopsRepository.observeTodayRouteStart(rideCode) { millis ->
+            todayRouteStartMillis = millis
+            recordStopArrivalsIfNeeded(RideSessionState.currentLocation.value)
+        }
     }
 
     override fun onStop() {
@@ -133,6 +193,17 @@ class MainActivity : AppCompatActivity() {
         }
         locationListener = null
         locationListenerRideCode = null
+
+        val stopsRideCode = stopsListenerRideCode
+        if (stopsRideCode != null) {
+            sharedStopsObservation?.let { stopsRepository.removeSharedStopsObservation(stopsRideCode, it) }
+            handRaisesListener?.let { stopsRepository.removeHandRaisesListener(stopsRideCode, it) }
+            todayRouteStartListener?.let { stopsRepository.removeTodayRouteStartListener(stopsRideCode, it) }
+        }
+        sharedStopsObservation = null
+        handRaisesListener = null
+        todayRouteStartListener = null
+        stopsListenerRideCode = null
     }
 
     private fun renderStatus(location: RideLocation?) {
@@ -258,6 +329,21 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /** Permanent, lightly-styled reference circles for the configured origin/destination (docs/SPEC_EN.md 3.4) — distinct from the red alert-zone circles. */
+    private fun pushOriginDestZonesToMap() {
+        fun zoneJson(point: GeoPoint?, radiusMeters: Int): String {
+            if (point == null) return "null"
+            return JSONObject().apply {
+                put("lat", point.lat)
+                put("lon", point.lon)
+                put("radiusMeters", radiusMeters)
+            }.toString()
+        }
+        val originJson = zoneJson(prefs.origin, prefs.geofenceRadiusMeters).replace("'", "\\'")
+        val destJson = zoneJson(prefs.destination, prefs.destinationRadiusMeters).replace("'", "\\'")
+        binding.webViewMap.evaluateJavascript("setOriginDestZones('$originJson', '$destJson')", null)
+    }
+
     private fun pushAlertZonesToMap() {
         val zonesArray = JSONArray()
         prefs.alertZones.forEach { zone ->
@@ -300,5 +386,193 @@ class MainActivity : AppCompatActivity() {
         prefs.alertZones = prefs.alertZones.filterNot { it.id == id }
         prefs.alertedZoneIds = prefs.alertedZoneIds - id
         pushAlertZonesToMap()
+    }
+
+    // --- Pickup stops (docs/SPEC_EN.md 3.9) ---
+
+    private fun pushMyStopCandidatesToMap() {
+        if (!mapReady) return
+        val array = JSONArray()
+        prefs.myStopCandidates.forEach { candidate ->
+            array.put(JSONObject().apply {
+                put("id", candidate.id)
+                put("lat", candidate.lat)
+                put("lon", candidate.lon)
+            })
+        }
+        binding.webViewMap.evaluateJavascript("setMyStopCandidates('${array.toString().replace("'", "\\'")}')", null)
+    }
+
+    private fun syncMyStopCandidates() {
+        pushMyStopCandidatesToMap()
+        val rideCode = prefs.rideCode
+        val candidates = prefs.myStopCandidates
+        lifecycleScope.launch { stopsRepository.syncOwnCandidates(rideCode, candidates) }
+    }
+
+    /** Tapped an empty spot on the map while the 🚏 edit-stops control is active. */
+    private fun addStopCandidate(lat: Double, lon: Double) {
+        prefs.myStopCandidates = prefs.myStopCandidates + StopCandidate(UUID.randomUUID().toString(), lat, lon)
+        syncMyStopCandidates()
+    }
+
+    private fun moveStopCandidate(id: String, lat: Double, lon: Double) {
+        prefs.myStopCandidates = prefs.myStopCandidates.map { if (it.id == id) it.copy(lat = lat, lon = lon) else it }
+        syncMyStopCandidates()
+    }
+
+    private fun deleteStopCandidate(id: String) {
+        prefs.myStopCandidates = prefs.myStopCandidates.filterNot { it.id == id }
+        syncMyStopCandidates()
+    }
+
+    private fun addStopCandidateAtCurrentLocation() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(this, R.string.permissions_title, Toast.LENGTH_SHORT).show()
+            return
+        }
+        LocationServices.getFusedLocationProviderClient(this).lastLocation
+            .addOnSuccessListener { location ->
+                if (location == null) return@addOnSuccessListener
+                addStopCandidate(location.latitude, location.longitude)
+                Toast.makeText(this, R.string.stop_added_here_message, Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    /** Logs, once per stop per day, how long after today's route start
+     * (StopsRepository.observeTodayRouteStart) the shared ride was
+     * observed entering a stop's zone — the raw data behind ordering
+     * stops by their actual observed timeline rather than straight-line
+     * distance (docs/SPEC_EN.md 3.9). Runs on every shared-location
+     * update, same as the other per-location checks. */
+    private fun recordStopArrivalsIfNeeded(location: RideLocation?) {
+        val startMillis = todayRouteStartMillis ?: return
+        if (location == null) return
+        val elapsedMillis = System.currentTimeMillis() - startMillis
+        if (elapsedMillis < 0) return
+        val todayKey = todayDateKeyFormat.format(Date())
+        latestSharedStops.forEach { stop ->
+            val dedupeKey = "$todayKey|${stop.id}"
+            if (dedupeKey in recordedStopArrivalKeysToday) return@forEach
+            val distanceMeters = GeoUtil.distanceMeters(location.lat, location.lon, stop.lat, stop.lon)
+            if (distanceMeters <= RideConfig.STOP_MERGE_RADIUS_METERS) {
+                recordedStopArrivalKeysToday.add(dedupeKey)
+                val rideCode = prefs.rideCode
+                lifecycleScope.launch { stopsRepository.recordStopArrival(rideCode, stop.lat, stop.lon, elapsedMillis) }
+            }
+        }
+    }
+
+    private fun pushSharedStopsToMap() {
+        if (!mapReady) return
+        val array = JSONArray()
+        latestSharedStops.forEach { stop ->
+            val raise = latestHandRaises.firstOrNull { it.stopId == stop.id }
+            array.put(JSONObject().apply {
+                put("id", stop.id)
+                put("name", stop.name)
+                put("lat", stop.lat)
+                put("lon", stop.lon)
+                put("handRaiseText", raise?.let { handRaiseBannerText(it) } ?: JSONObject.NULL)
+            })
+        }
+        binding.webViewMap.evaluateJavascript("setSharedStops('${array.toString().replace("'", "\\'")}')", null)
+    }
+
+    // --- Raise hand (docs/SPEC_EN.md 3.9) ---
+
+    private fun handRaiseBannerText(raise: ActiveHandRaise): String {
+        val stopName = latestSharedStops.firstOrNull { it.id == raise.stopId }?.name ?: ""
+        val who = raise.nickname?.takeIf { it.isNotBlank() } ?: getString(R.string.raise_hand_anonymous_rider)
+        return getString(R.string.raise_hand_banner_format, who, stopName)
+    }
+
+    private fun renderHandRaiseBanners() {
+        binding.handRaiseBannerContainer.removeAllViews()
+        latestHandRaises.forEach { raise ->
+            val banner = TextView(this).apply {
+                text = handRaiseBannerText(raise)
+                setBackgroundColor(getColor(R.color.status_warning))
+                setTextColor(getColor(android.R.color.white))
+                setPadding(24, 16, 24, 16)
+                textSize = 14f
+            }
+            binding.handRaiseBannerContainer.addView(banner)
+        }
+        binding.handRaiseBannerContainer.visibility = if (latestHandRaises.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    /** This device's own candidates, resolved to whichever shared (merged) stop each currently belongs to, deduplicated. */
+    private fun myMatchingSharedStops(): List<SharedStop> {
+        val mine = prefs.myStopCandidates
+        if (mine.isEmpty()) return emptyList()
+        return latestSharedStops.filter { stop ->
+            mine.any { candidate -> GeoUtil.distanceMeters(candidate.lat, candidate.lon, stop.lat, stop.lon) <= RideConfig.STOP_MERGE_RADIUS_METERS }
+        }
+    }
+
+    private fun toggleHandRaise() {
+        if (prefs.myHandRaiseStopId != null) {
+            cancelHandRaise()
+            return
+        }
+        val myStops = myMatchingSharedStops()
+        when {
+            myStops.isEmpty() -> Toast.makeText(this, R.string.raise_hand_no_stop_message, Toast.LENGTH_LONG).show()
+            myStops.size == 1 -> raiseHandFor(myStops.first())
+            else -> showStopChooserDialog(myStops)
+        }
+    }
+
+    private fun showStopChooserDialog(stops: List<SharedStop>) {
+        val names = stops.map { it.name }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.raise_hand_choose_stop_title)
+            .setItems(names) { _, index -> raiseHandFor(stops[index]) }
+            .show()
+    }
+
+    private fun raiseHandFor(stop: SharedStop) {
+        prefs.myHandRaiseStopId = stop.id
+        prefs.myHandRaiseEnteredStopZone = false
+        val nickname = prefs.nickname.takeIf { prefs.showNickname && it.isNotBlank() }
+        lifecycleScope.launch { stopsRepository.setMyHandRaise(prefs.rideCode, stop.id, nickname) }
+        Toast.makeText(this, R.string.raise_hand_activated_message, Toast.LENGTH_SHORT).show()
+        renderRaiseHandButton()
+    }
+
+    private fun cancelHandRaise() {
+        prefs.myHandRaiseStopId = null
+        prefs.myHandRaiseEnteredStopZone = false
+        lifecycleScope.launch { stopsRepository.clearMyHandRaise(prefs.rideCode) }
+        Toast.makeText(this, R.string.raise_hand_deactivated_message, Toast.LENGTH_SHORT).show()
+        renderRaiseHandButton()
+    }
+
+    private fun renderRaiseHandButton() {
+        val active = prefs.myHandRaiseStopId != null
+        binding.btnRaiseHand.backgroundTintList = ColorStateList.valueOf(
+            getColor(if (active) R.color.brand_accent else R.color.status_idle)
+        )
+    }
+
+    /** Auto-clears this device's own raised hand once the shared ride
+     * location is observed entering [Prefs.myHandRaiseStopId]'s zone and
+     * then leaving it again — never just because it hasn't arrived yet
+     * (docs/SPEC_EN.md 3.9). Runs on every shared-location AND every
+     * shared-stops update, since either can be what's needed to resolve
+     * the stop id to a position. */
+    private fun checkHandRaiseAutoClear(location: RideLocation?) {
+        val stopId = prefs.myHandRaiseStopId ?: return
+        val stop = latestSharedStops.firstOrNull { it.id == stopId } ?: return
+        if (location == null) return
+        val distanceMeters = GeoUtil.distanceMeters(location.lat, location.lon, stop.lat, stop.lon)
+        if (distanceMeters <= RideConfig.STOP_MERGE_RADIUS_METERS) {
+            prefs.myHandRaiseEnteredStopZone = true
+        } else if (prefs.myHandRaiseEnteredStopZone) {
+            cancelHandRaise()
+        }
     }
 }

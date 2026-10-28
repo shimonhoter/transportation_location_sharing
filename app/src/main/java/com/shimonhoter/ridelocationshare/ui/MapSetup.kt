@@ -14,19 +14,21 @@ fun WebView.loadRideMap(
     mode: String,
     centerLat: Double = 32.0853,
     centerLon: Double = 34.7818,
-    zoom: Double = 13.0
+    zoom: Double = 13.0,
+    radiusMeters: Double? = null
 ) {
     settings.javaScriptEnabled = true
     settings.domStorageEnabled = true
     if (bridge != null) {
         addJavascriptInterface(bridge, "Android")
     }
-    val url = Uri.parse("file:///android_asset/map.html").buildUpon()
+    val urlBuilder = Uri.parse("file:///android_asset/map.html").buildUpon()
         .appendQueryParameter("mode", mode)
         .appendQueryParameter("lat", centerLat.toString())
         .appendQueryParameter("lon", centerLon.toString())
         .appendQueryParameter("zoom", zoom.toString())
-        .build()
-        .toString()
-    loadUrl(url)
+    if (radiusMeters != null) {
+        urlBuilder.appendQueryParameter("radius", radiusMeters.toString())
+    }
+    loadUrl(urlBuilder.build().toString())
 }
