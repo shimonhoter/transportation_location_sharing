@@ -73,13 +73,20 @@ per-device history).
   2. A detected stop-and-go traffic jam (`BroadcastService.isStopAndGoTrafficJam()`):
      crawling traffic can spend long stretches below
      `MOVING_SPEED_THRESHOLD_KMH` without a single fix ever cleanly
-     crossing it, unlike a pedestrian whose speed stays smooth and
-     bounded. Within a rolling window of the last
-     `RideConfig.TRAFFIC_JAM_WINDOW_SECONDS` (90s), if at least one sample
-     shows a near-total stop (`TRAFFIC_JAM_STOP_SPEED_KMH`, 2 km/h or
-     below) **and** at least one shows a burst clearly faster than walking
-     pace (`TRAFFIC_JAM_BURST_SPEED_KMH`, 12 km/h or above) — genuine
-     stop-start jitter, not a slow steady walk — that starts the
+     crossing it. The signature isn't a high peak speed — any sample
+     at/above `MOVING_SPEED_THRESHOLD_KMH` would already satisfy signal 1
+     on its own, making a peak-based test nearly unreachable for exactly
+     the sub-threshold crawl it's meant to catch — it's *oscillation*:
+     repeatedly dropping to a near-complete stop and then resuming motion,
+     several times in a short window. Someone walking continuously
+     essentially never does this (pausing once at a junction is normal;
+     stopping and restarting multiple times in under two minutes isn't).
+     Within a rolling window of the last `RideConfig.TRAFFIC_JAM_WINDOW_SECONDS`
+     (90s), at least `TRAFFIC_JAM_MIN_STOP_GO_CYCLES` (2) full transitions
+     from a near-complete stop (`TRAFFIC_JAM_STOP_SPEED_KMH`, 2 km/h or
+     below) to resumed motion (`TRAFFIC_JAM_RESUME_SPEED_KMH`, 3 km/h or
+     above — intentionally well below both `MOVING_SPEED_THRESHOLD_KMH`
+     and normal walking pace, so a brief creep forward counts) starts the
      broadcast too. This only widens *when else* broadcasting also
      starts; crossing `MOVING_SPEED_THRESHOLD_KMH` itself is never made
      less sensitive by it.

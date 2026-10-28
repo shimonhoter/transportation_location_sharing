@@ -326,14 +326,27 @@ class BroadcastService : Service() {
         }
     }
 
-    /** Stop-and-go traffic: within the recent window, at least one near-total
-     * stop AND at least one burst clearly faster than a walking pace —
-     * jitter a pedestrian's smooth, bounded speed wouldn't produce (see
-     * RideConfig.TRAFFIC_JAM_WINDOW_SECONDS doc for the full rationale). */
+    /** Stop-and-go traffic: counts full stop-then-resume transitions within
+     * the recent window — not a high peak speed, which a sample at/above
+     * [RideConfig.MOVING_SPEED_THRESHOLD_KMH] would already satisfy via the
+     * main check on its own, making a peak-based test nearly unreachable
+     * for the sub-threshold crawl this is meant to catch (see
+     * RideConfig.TRAFFIC_JAM_WINDOW_SECONDS doc for the full rationale).
+     * Walking continuously essentially never oscillates between a
+     * near-complete stop and resumed motion several times in under two
+     * minutes the way traffic-light-paced crawling does. */
     private fun isStopAndGoTrafficJam(): Boolean {
-        val hasStopped = recentSpeedSamplesKmh.any { it.second <= RideConfig.TRAFFIC_JAM_STOP_SPEED_KMH }
-        val hasBurst = recentSpeedSamplesKmh.any { it.second >= RideConfig.TRAFFIC_JAM_BURST_SPEED_KMH }
-        return hasStopped && hasBurst
+        var cycles = 0
+        var stoppedSinceLastCycle = false
+        for ((_, speedKmh) in recentSpeedSamplesKmh) {
+            if (speedKmh <= RideConfig.TRAFFIC_JAM_STOP_SPEED_KMH) {
+                stoppedSinceLastCycle = true
+            } else if (stoppedSinceLastCycle && speedKmh >= RideConfig.TRAFFIC_JAM_RESUME_SPEED_KMH) {
+                cycles++
+                stoppedSinceLastCycle = false
+            }
+        }
+        return cycles >= RideConfig.TRAFFIC_JAM_MIN_STOP_GO_CYCLES
     }
 
     /** Computed live from current prefs on every check, rather than cached at
