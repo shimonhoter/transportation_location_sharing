@@ -39,12 +39,13 @@ import kotlinx.coroutines.launch
 /**
  * Owns this device's participation in the current ride: decides (in
  * automatic mode) when to start broadcasting based on the active window +
- * speed condition, and when to stop it (safety timer, sustained low speed,
- * or reaching the destination zone — whichever comes first); writes this
- * device's location to Firebase
- * while broadcasting, and separately listens for the shared ride location
- * for the UI and for on-device alert-zone checks (docs/SPEC_EN.md sections
- * 3.1-3.6).
+ * speed condition (crossing [RideConfig.MOVING_SPEED_THRESHOLD_KMH], or a
+ * detected stop-and-go traffic jam — see [isStopAndGoTrafficJam]), and when
+ * to stop it (safety timer, sustained low speed, or reaching the
+ * destination zone — whichever comes first); writes this device's location
+ * to Firebase while broadcasting, and separately listens for the shared
+ * ride location for the UI and for on-device alert-zone checks
+ * (docs/SPEC_EN.md sections 3.1-3.6).
  *
  * Every caller must go through [startAutomatic] or [stop] — a single call
  * path per action.
@@ -61,6 +62,7 @@ class BroadcastService : Service() {
     private var sharedLocationListenerRideCode: String? = null
     private var isBroadcastingLocally = false
     private var lastMovingAtMillis: Long = 0L
+    private val recentSpeedSamplesKmh = ArrayDeque<Pair<Long, Double>>()
 
     override fun onCreate() {
         super.onCreate()
@@ -273,18 +275,65 @@ class BroadcastService : Service() {
         }
     }
 
-    /** Start condition: moving faster than [RideConfig.MOVING_SPEED_THRESHOLD_KMH] —
-     * no longer gated on being near a configured origin point, so broadcasting
-     * can start anywhere, purely from the active window (this method is only
-     * reached while the service is running, which already requires the
-     * window to be active — see ActiveWindow.isNowActive callers) and speed. */
+    /** Start condition: moving faster than [RideConfig.MOVING_SPEED_THRESHOLD_KMH]
+     * (filtered against single-fix GPS speed glitches, see
+     * [isReliablyAboveMovingThreshold]) OR a stop-and-go traffic jam pattern
+     * (see [isStopAndGoTrafficJam]) — no longer gated on being near a
+     * configured origin point, so broadcasting can start anywhere, purely
+     * from the active window (this method is only reached while the service
+     * is running, which already requires the window to be active — see
+     * ActiveWindow.isNowActive callers) and speed. */
     private fun checkAutoStartCondition(location: Location) {
         if (prefs.isPrivateCarActive()) return
         val speedKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
-        if (speedKmh > RideConfig.MOVING_SPEED_THRESHOLD_KMH) {
+        recordRecentSpeedSample(speedKmh)
+
+        if (isReliablyAboveMovingThreshold(location, speedKmh)) {
             AppLog.i(TAG, "Movement threshold reached, starting broadcast")
             beginBroadcasting()
+        } else if (isStopAndGoTrafficJam()) {
+            AppLog.i(TAG, "Stop-and-go traffic pattern detected, starting broadcast")
+            beginBroadcasting()
         }
+    }
+
+    /** Crossing [RideConfig.MOVING_SPEED_THRESHOLD_KMH] always starts the
+     * broadcast — but a single isolated GPS fix can misreport speed well
+     * above the real value (multipath reflections, a bad Doppler read),
+     * which is indistinguishable from genuine movement on that one fix
+     * alone and was observed starting a broadcast while the device was
+     * actually stationary. [Location.getSpeedAccuracyMetersPerSecond] (API
+     * 26+, always present at this app's minSdk) gives that same fix's own
+     * reported uncertainty for its speed estimate — requiring the reading to
+     * clear the threshold even after subtracting that margin rejects a
+     * low-confidence glitch without adding any delay for genuinely fast
+     * movement, whose reported accuracy is normally tight. Devices/fixes
+     * that don't report speed accuracy at all fall back to the plain
+     * threshold check, unchanged from before. */
+    private fun isReliablyAboveMovingThreshold(location: Location, speedKmh: Double): Boolean {
+        if (speedKmh <= RideConfig.MOVING_SPEED_THRESHOLD_KMH) return false
+        if (!location.hasSpeedAccuracy()) return true
+        val speedAccuracyKmh = location.speedAccuracyMetersPerSecond * 3.6
+        return speedKmh - speedAccuracyKmh > RideConfig.MOVING_SPEED_THRESHOLD_KMH
+    }
+
+    private fun recordRecentSpeedSample(speedKmh: Double) {
+        val now = System.currentTimeMillis()
+        recentSpeedSamplesKmh.addLast(now to speedKmh)
+        val windowStart = now - RideConfig.TRAFFIC_JAM_WINDOW_SECONDS.toLong() * 1000
+        while (recentSpeedSamplesKmh.isNotEmpty() && recentSpeedSamplesKmh.first().first < windowStart) {
+            recentSpeedSamplesKmh.removeFirst()
+        }
+    }
+
+    /** Stop-and-go traffic: within the recent window, at least one near-total
+     * stop AND at least one burst clearly faster than a walking pace —
+     * jitter a pedestrian's smooth, bounded speed wouldn't produce (see
+     * RideConfig.TRAFFIC_JAM_WINDOW_SECONDS doc for the full rationale). */
+    private fun isStopAndGoTrafficJam(): Boolean {
+        val hasStopped = recentSpeedSamplesKmh.any { it.second <= RideConfig.TRAFFIC_JAM_STOP_SPEED_KMH }
+        val hasBurst = recentSpeedSamplesKmh.any { it.second >= RideConfig.TRAFFIC_JAM_BURST_SPEED_KMH }
+        return hasStopped && hasBurst
     }
 
     /** Computed live from current prefs on every check, rather than cached at
@@ -296,6 +345,7 @@ class BroadcastService : Service() {
     private fun beginBroadcasting() {
         isBroadcastingLocally = true
         lastMovingAtMillis = 0L
+        recentSpeedSamplesKmh.clear()
         prefs.isBroadcasting = true
         prefs.rideStartTimeMillis = System.currentTimeMillis()
         RideSessionState.isThisDeviceBroadcasting.postValue(true)

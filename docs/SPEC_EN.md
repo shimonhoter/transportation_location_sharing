@@ -57,9 +57,32 @@ per-device history).
 
 ### 3.2 Ride lifecycle
 - **Start condition:** the active day/time window (3.3) is currently in
-  effect **and** the device's speed exceeds
-  `RideConfig.MOVING_SPEED_THRESHOLD_KMH` — no origin/geofence requirement;
-  broadcasting can start from anywhere once moving fast enough.
+  effect **and** either of two speed-based signals fires — no
+  origin/geofence requirement; broadcasting can start from anywhere once
+  moving fast enough:
+  1. The device's speed exceeds `RideConfig.MOVING_SPEED_THRESHOLD_KMH` on a
+     single GPS fix — always starts the broadcast. Filtered against
+     single-fix GPS speed glitches (a real incident: the broadcast started
+     once while the device was stationary) via
+     `BroadcastService.isReliablyAboveMovingThreshold()` — when the fix
+     reports `Location.getSpeedAccuracyMetersPerSecond()` (API 26+, always
+     present at this app's minSdk), the reading only counts if it clears
+     the threshold even after subtracting its own reported uncertainty
+     margin; a fix with no speed-accuracy data falls back to the plain
+     threshold check, unchanged from before.
+  2. A detected stop-and-go traffic jam (`BroadcastService.isStopAndGoTrafficJam()`):
+     crawling traffic can spend long stretches below
+     `MOVING_SPEED_THRESHOLD_KMH` without a single fix ever cleanly
+     crossing it, unlike a pedestrian whose speed stays smooth and
+     bounded. Within a rolling window of the last
+     `RideConfig.TRAFFIC_JAM_WINDOW_SECONDS` (90s), if at least one sample
+     shows a near-total stop (`TRAFFIC_JAM_STOP_SPEED_KMH`, 2 km/h or
+     below) **and** at least one shows a burst clearly faster than walking
+     pace (`TRAFFIC_JAM_BURST_SPEED_KMH`, 12 km/h or above) — genuine
+     stop-start jitter, not a slow steady walk — that starts the
+     broadcast too. This only widens *when else* broadcasting also
+     starts; crossing `MOVING_SPEED_THRESHOLD_KMH` itself is never made
+     less sensitive by it.
 - **Stop condition — three, checked in parallel, whichever triggers first:**
   1. a safety timer set to the expected trip duration plus a safety margin;
   2. sustained low speed — the device hasn't exceeded

@@ -26,6 +26,27 @@ object RideConfig {
     const val MOVING_SPEED_THRESHOLD_KMH = 7.0
 
     /**
+     * Stop-and-go traffic jam detection for the broadcast *start* condition
+     * (BroadcastService.checkAutoStartCondition): a car crawling in traffic
+     * can spend long stretches below [MOVING_SPEED_THRESHOLD_KMH] without
+     * ever cleanly crossing it on a single GPS fix, unlike a pedestrian
+     * whose speed stays smooth and bounded. Within a rolling window of the
+     * last [TRAFFIC_JAM_WINDOW_SECONDS], if at least one sample shows a
+     * near-complete stop ([TRAFFIC_JAM_STOP_SPEED_KMH] or below) AND at
+     * least one shows a brief burst clearly faster than a walking pace
+     * ([TRAFFIC_JAM_BURST_SPEED_KMH] or above) — i.e. genuine stop-start
+     * jitter, not just a slow, steady walk — that's treated as being in a
+     * vehicle and starts the broadcast, even though no single fix crossed
+     * [MOVING_SPEED_THRESHOLD_KMH]. Crossing [MOVING_SPEED_THRESHOLD_KMH]
+     * itself always starts the broadcast immediately regardless of this —
+     * this only widens *when else* it also starts, it never narrows the
+     * main threshold.
+     */
+    const val TRAFFIC_JAM_WINDOW_SECONDS = 90.0
+    const val TRAFFIC_JAM_STOP_SPEED_KMH = 2.0
+    const val TRAFFIC_JAM_BURST_SPEED_KMH = 12.0
+
+    /**
      * A device that exceeded [MOVING_SPEED_THRESHOLD_KMH] this recently is
      * still treated as "in the vehicle" even while its instantaneous speed
      * is momentarily low — covers a brief stop (red light, traffic) so the
