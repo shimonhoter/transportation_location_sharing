@@ -309,24 +309,42 @@ users' candidate points are merged wherever they fall within
 (`StopsRepository.cluster` — a deterministic greedy single-pass merge,
 sorted first so every device reaches the same grouping) into one stop at
 the group's centroid. Stops are named `"תחנה 1"`, `"תחנה 2"`, … in
-ascending order of straight-line distance from a statistically estimated
-route-origin point — the app has no real road-routing (no paid directions
-API), so this is the closest available proxy for "route order", not an
-actual road-route order.
+ascending order of their **observed position along the route's actual
+timeline**, not straight-line distance — a route that bends or loops can
+have a stop that's geometrically close to the start but reached late,
+which beeline distance would get wrong.
 
 **Route origin.** Whichever device is first to start broadcasting on a
-given day "claims" that day as the route's origin location, via a
-Firebase transaction (`StopsRepository.claimRouteOriginOfDay`, called from
+given day "claims" that day as the route's origin — both its location
+*and* start time — via a Firebase transaction
+(`StopsRepository.claimRouteOriginOfDay`, called from
 `BroadcastService.beginBroadcasting()`) on
 `rideLocation/rides/<rideCode>/routeOriginHistory/<yyyy-MM-dd>` — the
 transaction only writes if that day's entry is still empty, so exactly
 one device "wins" each day regardless of how many start broadcasting
-around the same time. The origin used for ordering stops is the average
-of up to `RideConfig.ROUTE_ORIGIN_HISTORY_RETENTION_DAYS` (30) days of
-this history; with none yet (a brand-new group), stops fall back to being
-ordered from the centroid of all current candidates instead, so there's
-still a consistent order from day one — this self-corrects automatically
-as real history accumulates.
+around the same time. The origin location used as a distance reference
+(see below) is the average of up to
+`RideConfig.ROUTE_ORIGIN_HISTORY_RETENTION_DAYS` (30) days of this
+history; with none yet (a brand-new group), it falls back to the
+centroid of all current candidates instead.
+
+**Stop ordering.** Any device watching the shared ride location logs,
+once per stop per day, how long after that day's route-start time the
+ride was observed entering a stop's zone
+(`MainActivity.recordStopArrivalsIfNeeded` →
+`StopsRepository.recordStopArrival`, also a "first write wins"
+transaction, at `rideLocation/rides/<rideCode>/stopArrivalHistory/<yyyy-MM-dd>/<roundedLatLon>`).
+Stops are then ordered by the average of that elapsed time across the
+same retention window — the actual observed timeline, immune to a route
+that bends or loops. A stop with no arrival samples yet (just added, or
+none anywhere in a brand-new group) is positioned using the group's own
+observed pace (total elapsed time ÷ total distance, across stops that DO
+have samples) applied to its own straight-line distance from the route
+origin, so every stop's sort key stays in the same unit (milliseconds)
+rather than mixing distance and time directly; with zero samples
+anywhere yet, that pace is undefined and ordering falls back to plain
+distance from the origin — self-correcting automatically as real
+arrival history accumulates.
 
 **Raise hand.** A ✋ button on the main screen lets a waiting passenger
 announce they're at a specific stop and want the ride to come by. If

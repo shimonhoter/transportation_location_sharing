@@ -19,12 +19,15 @@ import java.util.Locale
 
 data class SharedStop(val id: String, val name: String, val lat: Double, val lon: Double)
 data class ActiveHandRaise(val uid: String, val stopId: String, val nickname: String?)
+private data class StopArrivalSample(val lat: Double, val lon: Double, val elapsedMillis: Long)
 
-/** The two live listeners behind [StopsRepository.observeSharedStops] — pass
- * both back to [StopsRepository.removeSharedStopsObservation] together. */
+/** The three live listeners behind [StopsRepository.observeSharedStops] —
+ * pass all three back to [StopsRepository.removeSharedStopsObservation]
+ * together. */
 class SharedStopsObservation internal constructor(
     internal val candidatesListener: ValueEventListener,
-    internal val originHistoryListener: ValueEventListener
+    internal val originHistoryListener: ValueEventListener,
+    internal val arrivalHistoryListener: ValueEventListener
 )
 
 /**
@@ -35,15 +38,34 @@ class SharedStopsObservation internal constructor(
  * computed identically (and deterministically) on every device from the
  * same raw Firebase data — there's no server-side computation, matching
  * how FirebaseLocationRepository's own aggregation is entirely
- * client-side. Stops are ordered/named by distance from a statistically
- * estimated route-origin point: the average location of whichever device
- * was first to start broadcasting each day, going back up to
- * [RideConfig.ROUTE_ORIGIN_HISTORY_RETENTION_DAYS] days (claimed via a
- * Firebase transaction so exactly one device "wins" each day — see
- * [claimRouteOriginOfDay]). Also owns the "raise hand" shared state: a
- * device announces it's waiting at a specific stop, visible to everyone
- * watching the ride, until it's cancelled or MainActivity observes the
- * ride leaving that stop's zone and clears it.
+ * client-side.
+ *
+ * Stops are ordered/named by their statistically observed position along
+ * the route's actual timeline, not straight-line distance — a route that
+ * bends or loops can have a stop that's geometrically close to the start
+ * but reached late, which beeline distance would get wrong.
+ * [recordStopArrival] lets any device log, once per stop per day, how
+ * long after that day's route start (see below) the shared ride was
+ * observed entering a stop's zone; stops are then ordered by the average
+ * of that elapsed time across up to
+ * [RideConfig.ROUTE_ORIGIN_HISTORY_RETENTION_DAYS] days. A stop with no
+ * arrival history yet (just added, or a brand-new group with none at
+ * all) is positioned using the group's own observed pace (total elapsed
+ * time / total distance across stops that DO have history) applied to
+ * its distance from the route origin, so the units stay consistent
+ * (milliseconds, never a raw distance) — with zero history anywhere yet,
+ * that reduces to ordering by plain distance from the origin, which
+ * self-corrects automatically as real history accumulates.
+ *
+ * The "route origin" itself is the average location of whichever device
+ * was first to start broadcasting each day, going back the same
+ * retention window (claimed via a Firebase transaction so exactly one
+ * device "wins" each day — see [claimRouteOriginOfDay]).
+ *
+ * Also owns the "raise hand" shared state: a device announces it's
+ * waiting at a specific stop, visible to everyone watching the ride,
+ * until it's cancelled or MainActivity observes the ride leaving that
+ * stop's zone and clears it.
  */
 class StopsRepository {
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
@@ -55,6 +77,7 @@ class StopsRepository {
 
     private fun stopCandidatesRef(rideCode: String) = rideRef(rideCode).child("stopCandidates")
     private fun routeOriginHistoryRef(rideCode: String) = rideRef(rideCode).child("routeOriginHistory")
+    private fun stopArrivalHistoryRef(rideCode: String) = rideRef(rideCode).child("stopArrivalHistory")
     private fun handRaisesRef(rideCode: String) = rideRef(rideCode).child("handRaises")
 
     private suspend fun ensureSignedIn(): String {
@@ -82,7 +105,9 @@ class StopsRepository {
      * calls this on a given day (a Firebase transaction, so concurrent
      * callers from different devices can't both "win"); every later call
      * the same day is a harmless no-op. Called from
-     * BroadcastService.beginBroadcasting(). */
+     * BroadcastService.beginBroadcasting(). Stores the start time
+     * alongside the location — [observeTodayRouteStart] reads it back so
+     * [recordStopArrival] can log elapsed time relative to it. */
     suspend fun claimRouteOriginOfDay(rideCode: String, lat: Double, lon: Double) {
         try {
             ensureSignedIn()
@@ -90,24 +115,84 @@ class StopsRepository {
             routeOriginHistoryRef(rideCode).child(todayKey).runTransaction(object : Transaction.Handler {
                 override fun doTransaction(currentData: MutableData): Transaction.Result {
                     if (currentData.value == null) {
-                        currentData.value = mapOf("lat" to lat, "lon" to lon)
+                        currentData.value = mapOf("lat" to lat, "lon" to lon, "startedAtMillis" to System.currentTimeMillis())
                     }
                     return Transaction.success(currentData)
                 }
                 override fun onComplete(error: DatabaseError?, committed: Boolean, snapshot: DataSnapshot?) = Unit
             })
-            pruneRouteOriginHistory(rideCode)
+            pruneByDayKey(routeOriginHistoryRef(rideCode))
         } catch (_: Exception) {
             // Best-effort — losing one day's sample barely affects a 30-day average.
         }
     }
 
-    private suspend fun pruneRouteOriginHistory(rideCode: String) {
+    /** The millis [claimRouteOriginOfDay] recorded for *today* specifically
+     * (not history) — [MainActivity] uses this to compute "elapsed since
+     * route start" for [recordStopArrival]. Null until some device has
+     * claimed today (normally within seconds of the first broadcast
+     * starting). */
+    fun observeTodayRouteStart(rideCode: String, onChange: (Long?) -> Unit): ValueEventListener {
+        val ref = routeOriginHistoryRef(rideCode).child(dayKeyFormat.format(Date())).child("startedAtMillis")
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                onChange(snapshot.getValue(Long::class.java))
+            }
+            override fun onCancelled(error: DatabaseError) {
+                onChange(null)
+            }
+        }
+        ref.addValueEventListener(listener)
+        return listener
+    }
+
+    /** Must be called with the same day as when [observeTodayRouteStart]
+     * was called — if a listener happens to span midnight, this only
+     * fails to detach it, a negligible one-time leak. */
+    fun removeTodayRouteStartListener(rideCode: String, listener: ValueEventListener) {
+        routeOriginHistoryRef(rideCode).child(dayKeyFormat.format(Date())).child("startedAtMillis").removeEventListener(listener)
+    }
+
+    /**
+     * Logs that the shared ride was observed entering a stop's zone
+     * [elapsedMillis] after today's route start — once per stop per day
+     * (a transaction keyed by a rounded lat/lon "cell", so concurrent
+     * callers from different devices can't both "win" the same
+     * stop-day). The rounding is only to keep that per-day dedup key
+     * short and well-formed for Firebase (which forbids '.' in keys); the
+     * later read side ([computeSharedStops]) matches samples back to a
+     * stop by real distance, not by this key, so drift in a stop's exact
+     * centroid between days doesn't cause samples to go unmatched.
+     * [lat]/[lon] should be the stop's own position, not the device's.
+     */
+    suspend fun recordStopArrival(rideCode: String, lat: Double, lon: Double, elapsedMillis: Long) {
+        try {
+            ensureSignedIn()
+            val todayKey = dayKeyFormat.format(Date())
+            val cellKey = "${Math.round(lat * 10000.0)}_${Math.round(lon * 10000.0)}"
+            stopArrivalHistoryRef(rideCode).child(todayKey).child(cellKey).runTransaction(object : Transaction.Handler {
+                override fun doTransaction(currentData: MutableData): Transaction.Result {
+                    if (currentData.value == null) {
+                        currentData.value = mapOf("lat" to lat, "lon" to lon, "elapsedMillis" to elapsedMillis)
+                    }
+                    return Transaction.success(currentData)
+                }
+                override fun onComplete(error: DatabaseError?, committed: Boolean, snapshot: DataSnapshot?) = Unit
+            })
+            pruneByDayKey(stopArrivalHistoryRef(rideCode))
+        } catch (_: Exception) {
+            // Best-effort — losing one day's sample barely affects a 30-day average.
+        }
+    }
+
+    /** Shared by both history nodes: both are keyed by yyyy-MM-dd day at
+     * their first level. */
+    private suspend fun pruneByDayKey(dayKeyedRef: DatabaseReference) {
         try {
             val cutoffKey = dayKeyFormat.format(
                 Date(System.currentTimeMillis() - RideConfig.ROUTE_ORIGIN_HISTORY_RETENTION_DAYS * 24L * 60 * 60 * 1000)
             )
-            val snapshot = routeOriginHistoryRef(rideCode).orderByKey().endAt(cutoffKey).get().await()
+            val snapshot = dayKeyedRef.orderByKey().endAt(cutoffKey).get().await()
             for (child in snapshot.children) {
                 if (child.key != cutoffKey) child.ref.removeValue()
             }
@@ -117,11 +202,12 @@ class StopsRepository {
     }
 
     /**
-     * Attaches two live listeners (candidates + route-origin history);
-     * [onChange] fires with the freshly recomputed shared-stop list
-     * whenever either changes, once both have reported at least once.
-     * [nameFormat] (e.g. `{ n -> getString(R.string.stop_name_format, n) }`)
-     * is injected since this class has no Context/resources of its own.
+     * Attaches three live listeners (candidates + route-origin history +
+     * stop-arrival history); [onChange] fires with the freshly
+     * recomputed shared-stop list whenever any of them changes, once all
+     * three have reported at least once. [nameFormat] (e.g.
+     * `{ n -> getString(R.string.stop_name_format, n) }`) is injected
+     * since this class has no Context/resources of its own.
      */
     fun observeSharedStops(
         rideCode: String,
@@ -130,12 +216,14 @@ class StopsRepository {
     ): SharedStopsObservation {
         var latestCandidates: Map<String, List<StopCandidate>> = emptyMap()
         var latestOriginHistory: List<GeoPoint> = emptyList()
+        var latestArrivalHistory: List<StopArrivalSample> = emptyList()
         var gotCandidates = false
-        var gotHistory = false
+        var gotOriginHistory = false
+        var gotArrivalHistory = false
 
         fun recompute() {
-            if (!gotCandidates || !gotHistory) return
-            onChange(computeSharedStops(latestCandidates, latestOriginHistory, nameFormat))
+            if (!gotCandidates || !gotOriginHistory || !gotArrivalHistory) return
+            onChange(computeSharedStops(latestCandidates, latestOriginHistory, latestArrivalHistory, nameFormat))
         }
 
         val candidatesListener = object : ValueEventListener {
@@ -162,22 +250,42 @@ class StopsRepository {
                     val lon = daySnap.child("lon").getValue(Double::class.java) ?: return@mapNotNull null
                     GeoPoint(lat, lon)
                 }
-                gotHistory = true
+                gotOriginHistory = true
                 recompute()
             }
             override fun onCancelled(error: DatabaseError) {
-                gotHistory = true
+                gotOriginHistory = true
+                recompute()
+            }
+        }
+        val arrivalHistoryListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                latestArrivalHistory = snapshot.children.flatMap { daySnap ->
+                    daySnap.children.mapNotNull { cellSnap ->
+                        val lat = cellSnap.child("lat").getValue(Double::class.java) ?: return@mapNotNull null
+                        val lon = cellSnap.child("lon").getValue(Double::class.java) ?: return@mapNotNull null
+                        val elapsed = cellSnap.child("elapsedMillis").getValue(Long::class.java) ?: return@mapNotNull null
+                        StopArrivalSample(lat, lon, elapsed)
+                    }
+                }
+                gotArrivalHistory = true
+                recompute()
+            }
+            override fun onCancelled(error: DatabaseError) {
+                gotArrivalHistory = true
                 recompute()
             }
         }
         stopCandidatesRef(rideCode).addValueEventListener(candidatesListener)
         routeOriginHistoryRef(rideCode).addValueEventListener(originHistoryListener)
-        return SharedStopsObservation(candidatesListener, originHistoryListener)
+        stopArrivalHistoryRef(rideCode).addValueEventListener(arrivalHistoryListener)
+        return SharedStopsObservation(candidatesListener, originHistoryListener, arrivalHistoryListener)
     }
 
     fun removeSharedStopsObservation(rideCode: String, observation: SharedStopsObservation) {
         stopCandidatesRef(rideCode).removeEventListener(observation.candidatesListener)
         routeOriginHistoryRef(rideCode).removeEventListener(observation.originHistoryListener)
+        stopArrivalHistoryRef(rideCode).removeEventListener(observation.arrivalHistoryListener)
     }
 
     fun observeHandRaises(rideCode: String, onChange: (List<ActiveHandRaise>) -> Unit): ValueEventListener {
@@ -230,6 +338,7 @@ class StopsRepository {
     private fun computeSharedStops(
         candidatesByUid: Map<String, List<StopCandidate>>,
         originHistory: List<GeoPoint>,
+        arrivalHistory: List<StopArrivalSample>,
         nameFormat: (Int) -> String
     ): List<SharedStop> {
         val allPoints = candidatesByUid.values.flatten().map { GeoPoint(it.lat, it.lon) }
@@ -241,9 +350,46 @@ class StopsRepository {
         // consistent order from day one instead of none at all; this
         // self-corrects automatically once real history accumulates.
         val origin = if (originHistory.isNotEmpty()) centroidOf(originHistory) else centroidOf(allPoints)
-        val ordered = centroids.sortedBy { GeoUtil.distanceMeters(it.lat, it.lon, origin.lat, origin.lon) }
-        return ordered.mapIndexed { index, point ->
-            SharedStop(id = "stop_${index + 1}", name = nameFormat(index + 1), lat = point.lat, lon = point.lon)
+
+        data class Positioned(val point: GeoPoint, val distanceFromOriginMeters: Double, val meanElapsedMillis: Double?)
+        val positioned = centroids.map { point ->
+            val distance = GeoUtil.distanceMeters(point.lat, point.lon, origin.lat, origin.lon)
+            val matchingSamples = arrivalHistory.filter {
+                GeoUtil.distanceMeters(it.lat, it.lon, point.lat, point.lon) <= RideConfig.STOP_MERGE_RADIUS_METERS
+            }
+            val meanElapsed = if (matchingSamples.isNotEmpty()) {
+                matchingSamples.sumOf { it.elapsedMillis.toDouble() } / matchingSamples.size
+            } else {
+                null
+            }
+            Positioned(point, distance, meanElapsed)
+        }
+
+        // Order by real observed pass-time where we have it — correct even
+        // for a route that bends or loops, unlike straight-line distance.
+        // A stop with no matching samples yet is positioned using the
+        // group's own observed pace (total elapsed / total distance,
+        // across stops that DO have samples) applied to its own distance
+        // from the origin, so every stop's sort key stays in the same
+        // unit (milliseconds) rather than mixing distance and time
+        // directly. With no samples anywhere yet, paceMillisPerMeter is
+        // null and this reduces to plain distance-from-origin ordering —
+        // self-correcting automatically as real history accumulates.
+        val withSamples = positioned.filter { it.meanElapsedMillis != null }
+        val paceMillisPerMeter = if (withSamples.isNotEmpty()) {
+            val totalElapsed = withSamples.sumOf { it.meanElapsedMillis!! }
+            val totalDistance = withSamples.sumOf { it.distanceFromOriginMeters }.coerceAtLeast(1.0)
+            totalElapsed / totalDistance
+        } else {
+            null
+        }
+        val ordered = positioned.sortedBy { candidate ->
+            candidate.meanElapsedMillis
+                ?: paceMillisPerMeter?.times(candidate.distanceFromOriginMeters)
+                ?: candidate.distanceFromOriginMeters
+        }
+        return ordered.mapIndexed { index, candidate ->
+            SharedStop(id = "stop_${index + 1}", name = nameFormat(index + 1), lat = candidate.point.lat, lon = candidate.point.lon)
         }
     }
 

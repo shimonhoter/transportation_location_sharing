@@ -42,7 +42,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
@@ -56,9 +59,13 @@ class MainActivity : AppCompatActivity() {
     private var locationListenerRideCode: String? = null
     private var sharedStopsObservation: SharedStopsObservation? = null
     private var handRaisesListener: ValueEventListener? = null
+    private var todayRouteStartListener: ValueEventListener? = null
     private var stopsListenerRideCode: String? = null
     private var latestSharedStops: List<SharedStop> = emptyList()
     private var latestHandRaises: List<ActiveHandRaise> = emptyList()
+    private var todayRouteStartMillis: Long? = null
+    private val recordedStopArrivalKeysToday = mutableSetOf<String>()
+    private val todayDateKeyFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     private var mapReady = false
     private var lastRenderedBroadcasting: Boolean? = null
     private var privateCarAutoOffJob: Job? = null
@@ -125,6 +132,7 @@ class MainActivity : AppCompatActivity() {
             renderStatus(location)
             refreshEta()
             checkHandRaiseAutoClear(location)
+            recordStopArrivalsIfNeeded(location)
         }
 
         // Reflects whether THIS device is broadcasting, independent of the
@@ -171,6 +179,10 @@ class MainActivity : AppCompatActivity() {
             pushSharedStopsToMap()
             renderHandRaiseBanners()
         }
+        todayRouteStartListener = stopsRepository.observeTodayRouteStart(rideCode) { millis ->
+            todayRouteStartMillis = millis
+            recordStopArrivalsIfNeeded(RideSessionState.currentLocation.value)
+        }
     }
 
     override fun onStop() {
@@ -186,9 +198,11 @@ class MainActivity : AppCompatActivity() {
         if (stopsRideCode != null) {
             sharedStopsObservation?.let { stopsRepository.removeSharedStopsObservation(stopsRideCode, it) }
             handRaisesListener?.let { stopsRepository.removeHandRaisesListener(stopsRideCode, it) }
+            todayRouteStartListener?.let { stopsRepository.removeTodayRouteStartListener(stopsRideCode, it) }
         }
         sharedStopsObservation = null
         handRaisesListener = null
+        todayRouteStartListener = null
         stopsListenerRideCode = null
     }
 
@@ -425,6 +439,30 @@ class MainActivity : AppCompatActivity() {
                 addStopCandidate(location.latitude, location.longitude)
                 Toast.makeText(this, R.string.stop_added_here_message, Toast.LENGTH_SHORT).show()
             }
+    }
+
+    /** Logs, once per stop per day, how long after today's route start
+     * (StopsRepository.observeTodayRouteStart) the shared ride was
+     * observed entering a stop's zone — the raw data behind ordering
+     * stops by their actual observed timeline rather than straight-line
+     * distance (docs/SPEC_EN.md 3.9). Runs on every shared-location
+     * update, same as the other per-location checks. */
+    private fun recordStopArrivalsIfNeeded(location: RideLocation?) {
+        val startMillis = todayRouteStartMillis ?: return
+        if (location == null) return
+        val elapsedMillis = System.currentTimeMillis() - startMillis
+        if (elapsedMillis < 0) return
+        val todayKey = todayDateKeyFormat.format(Date())
+        latestSharedStops.forEach { stop ->
+            val dedupeKey = "$todayKey|${stop.id}"
+            if (dedupeKey in recordedStopArrivalKeysToday) return@forEach
+            val distanceMeters = GeoUtil.distanceMeters(location.lat, location.lon, stop.lat, stop.lon)
+            if (distanceMeters <= RideConfig.STOP_MERGE_RADIUS_METERS) {
+                recordedStopArrivalKeysToday.add(dedupeKey)
+                val rideCode = prefs.rideCode
+                lifecycleScope.launch { stopsRepository.recordStopArrival(rideCode, stop.lat, stop.lon, elapsedMillis) }
+            }
+        }
     }
 
     private fun pushSharedStopsToMap() {
