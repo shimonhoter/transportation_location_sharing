@@ -26,6 +26,35 @@
       border-color: #8A9490;
       font-size: 12px;
     }
+    .shared-stop-marker {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: none;
+    }
+    .stop-pin {
+      font-size: 20px;
+      line-height: 1;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+    }
+    .stop-pin-active {
+      font-size: 22px;
+    }
+    .stop-label {
+      margin-top: 2px;
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 6px;
+      padding: 1px 6px;
+      font-size: 11px;
+      color: #2E3A33;
+      white-space: nowrap;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+    .stop-label-active {
+      background: #C0392B;
+      color: #FFFFFF;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -248,6 +277,45 @@
       map.addControl(new ZoneEditControl(), 'top-right');
     }
 
+    // Off by default; toggling it on is how this device's own pickup-stop
+    // candidates (docs/SPEC_EN.md 3.9) are placed and edited, directly on
+    // this map — same interaction language as alert-zone editing above,
+    // just point-only (no resize handle, since merging candidates within
+    // RideConfig.STOP_MERGE_RADIUS_METERS is what gives a stop its
+    // effective radius, not a per-point setting).
+    var stopEditModeEnabled = false;
+    var stopEditBtnEl = null;
+
+    function StopEditControl() {}
+    StopEditControl.prototype.onAdd = function (mapInstance) {
+      this._map = mapInstance;
+      var container = document.createElement('div');
+      container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.title = 'הוספה ועריכה של תחנות עלייה שלי';
+      btn.textContent = '🚏';
+      btn.style.opacity = '0.4';
+      btn.onclick = function () {
+        if (stopEditModeEnabled) {
+          exitStopEditMode();
+        } else {
+          enterStopEditMode();
+        }
+      };
+      stopEditBtnEl = btn;
+      container.appendChild(btn);
+      this._container = container;
+      return container;
+    };
+    StopEditControl.prototype.onRemove = function () {
+      this._container.parentNode.removeChild(this._container);
+      this._map = undefined;
+    };
+    if (mode === 'view') {
+      map.addControl(new StopEditControl(), 'top-right');
+    }
+
     function setMapStyleVariant(variant) {
       if (variant === currentStyleVariant) return;
       currentStyleVariant = variant;
@@ -385,8 +453,19 @@
         Android.onZoneAdded(e.lngLat.lat, e.lngLat.lng);
       }
     });
+    // Stop candidates are plain points (no fill layer to query against), so
+    // unlike alert-zone adding above there's no "landed inside an existing
+    // one" exclusion — tapping near an existing stop's own drag handle just
+    // drags that handle instead of reaching the map's click handler.
+    map.on('click', function (e) {
+      if (!stopEditModeEnabled) return;
+      if (window.Android && Android.onStopAdded) {
+        Android.onStopAdded(e.lngLat.lat, e.lngLat.lng);
+      }
+    });
     map.on('dblclick', function () {
       if (zoneEditModeEnabled) exitZoneEditMode();
+      if (stopEditModeEnabled) exitStopEditMode();
     });
 
     // --- Functions called from Kotlin via evaluateJavascript ---
@@ -616,6 +695,143 @@
       handles.deleteMarker.remove();
       delete zoneEditHandles[id];
       delete liveZoneOverrides[id];
+    }
+
+    // --- Pickup-stop candidate editing (🚏 control, docs/SPEC_EN.md 3.9) ---
+    // This device's own candidate points only — each gets a move handle
+    // (🚏, draggable) and a delete handle (🗑️, fixed 30m north of it, since
+    // there's no radius to place it relative to). The shared, merged,
+    // named stops everyone sees are a separate, non-editable layer — see
+    // setSharedStops() below.
+    var stopEditHandles = {};
+    var lastMyStops = [];
+
+    function setMyStopCandidates(stopsJson) {
+      lastMyStops = JSON.parse(stopsJson);
+      syncStopEditHandles();
+    }
+
+    function enterStopEditMode() {
+      stopEditModeEnabled = true;
+      if (stopEditBtnEl) stopEditBtnEl.style.opacity = '1';
+      if (autoCenterEnabled) {
+        autoCenterEnabled = false;
+        if (autoCenterBtnEl) autoCenterBtnEl.style.opacity = '0.4';
+      }
+      map.doubleClickZoom.disable();
+      syncStopEditHandles();
+    }
+
+    function exitStopEditMode() {
+      stopEditModeEnabled = false;
+      if (stopEditBtnEl) stopEditBtnEl.style.opacity = '0.4';
+      Object.keys(stopEditHandles).forEach(removeStopEditHandlesForId);
+      map.doubleClickZoom.enable();
+      autoCenterEnabled = true;
+      if (autoCenterBtnEl) autoCenterBtnEl.style.opacity = '1';
+      if (rideMarker) map.easeTo({ center: rideMarker.getLngLat(), zoom: map.getZoom() });
+    }
+
+    function syncStopEditHandles() {
+      if (!stopEditModeEnabled) return;
+      var currentIds = {};
+      lastMyStops.forEach(function (stop) {
+        currentIds[stop.id] = true;
+        if (!stopEditHandles[stop.id]) addStopEditHandles(stop);
+      });
+      Object.keys(stopEditHandles).forEach(function (id) {
+        if (!currentIds[id]) removeStopEditHandlesForId(id);
+      });
+    }
+
+    function addStopEditHandles(stop) {
+      var geom = { lat: stop.lat, lon: stop.lon };
+
+      var pinEl = document.createElement('div');
+      pinEl.className = 'zone-handle';
+      pinEl.textContent = '🚏';
+      var pinMarker = new maplibregl.Marker({ element: pinEl, draggable: true })
+        .setLngLat([geom.lon, geom.lat])
+        .addTo(map);
+
+      var deleteEl = document.createElement('div');
+      deleteEl.className = 'zone-handle zone-handle-delete';
+      deleteEl.textContent = '🗑️';
+      var deleteStart = destinationLatLon(geom.lat, geom.lon, 30, 0);
+      var deleteMarker = new maplibregl.Marker({ element: deleteEl })
+        .setLngLat([deleteStart[1], deleteStart[0]])
+        .addTo(map);
+      deleteEl.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        if (window.Android && Android.onStopDeleted) Android.onStopDeleted(stop.id);
+      });
+
+      function repositionDeleteMarker() {
+        var pos = destinationLatLon(geom.lat, geom.lon, 30, 0);
+        deleteMarker.setLngLat([pos[1], pos[0]]);
+      }
+
+      pinMarker.on('drag', function () {
+        var lngLat = pinMarker.getLngLat();
+        geom.lat = lngLat.lat;
+        geom.lon = lngLat.lng;
+        repositionDeleteMarker();
+      });
+      pinMarker.on('dragend', function () {
+        if (window.Android && Android.onStopMoved) Android.onStopMoved(stop.id, geom.lat, geom.lon);
+      });
+
+      stopEditHandles[stop.id] = { pinMarker: pinMarker, deleteMarker: deleteMarker };
+    }
+
+    function removeStopEditHandlesForId(id) {
+      var handles = stopEditHandles[id];
+      if (!handles) return;
+      handles.pinMarker.remove();
+      handles.deleteMarker.remove();
+      delete stopEditHandles[id];
+    }
+
+    // --- Shared, merged, named stops (everyone sees these, docs/SPEC_EN.md
+    // 3.9) — not editable here; each device's own raw candidates above are
+    // what's editable, this is the read-only result of merging everyone's
+    // candidates. A stop with an active "raised hand" is highlighted and
+    // its label carries the banner text instead of just its name.
+    var sharedStopMarkers = {};
+
+    function setSharedStops(stopsJson) {
+      var stops = JSON.parse(stopsJson);
+      var currentIds = {};
+      stops.forEach(function (stop) {
+        currentIds[stop.id] = true;
+        if (!sharedStopMarkers[stop.id]) {
+          var el = document.createElement('div');
+          el.className = 'shared-stop-marker';
+          var pinEl = document.createElement('div');
+          var labelEl = document.createElement('div');
+          el.appendChild(pinEl);
+          el.appendChild(labelEl);
+          var marker = new maplibregl.Marker({ element: el }).setLngLat([stop.lon, stop.lat]).addTo(map);
+          sharedStopMarkers[stop.id] = { marker: marker, pinEl: pinEl, labelEl: labelEl };
+        }
+        var entry = sharedStopMarkers[stop.id];
+        entry.marker.setLngLat([stop.lon, stop.lat]);
+        var active = !!stop.handRaiseText;
+        // textContent, not innerHTML — stop.handRaiseText embeds a
+        // user-supplied nickname (Prefs.nickname), which must never be
+        // parsed as markup in a page that also exposes the Android
+        // JavascriptInterface bridge.
+        entry.pinEl.className = 'stop-pin' + (active ? ' stop-pin-active' : '');
+        entry.pinEl.textContent = active ? '✋🚏' : '🚏';
+        entry.labelEl.className = 'stop-label' + (active ? ' stop-label-active' : '');
+        entry.labelEl.textContent = active ? stop.handRaiseText : stop.name;
+      });
+      Object.keys(sharedStopMarkers).forEach(function (id) {
+        if (!currentIds[id]) {
+          sharedStopMarkers[id].marker.remove();
+          delete sharedStopMarkers[id];
+        }
+      });
     }
 
     // --- Single-zone radius picker (MapPickerActivity, mode=pick_zone) ---

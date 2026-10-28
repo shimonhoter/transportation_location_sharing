@@ -131,4 +131,27 @@ object RideConfig {
 
     /** Radius a new alert zone gets when placed by tapping the map (docs/SPEC_EN.md 3.5) — the drag-to-resize handle is the intended way to adjust it afterward. */
     const val DEFAULT_ALERT_ZONE_RADIUS_METERS = 150.0
+
+    /**
+     * Pickup-stops feature (docs/SPEC_EN.md section 3.9): candidate points
+     * from different users within this distance of each other
+     * (StopsRepository.cluster) are merged into one shared, averaged,
+     * named stop — there's no per-stop radius setting the way
+     * geofenceRadiusMeters/destinationRadiusMeters/alert zones have, this
+     * one fixed value drives both the merge distance and (reused) the
+     * "has the ride left this stop" radius that auto-clears a raised hand
+     * there.
+     */
+    const val STOP_MERGE_RADIUS_METERS = 100.0
+
+    /**
+     * How many days of "which device was first to start broadcasting that
+     * day, and where" history (StopsRepository.claimRouteOriginOfDay) are
+     * kept and averaged to statistically estimate the route's start point
+     * — used only to order/name pickup stops by distance from it, since
+     * this app has no real road-routing (no paid directions API). Mirrors
+     * HISTORY_RETENTION_DAYS, but this history is shared per ride code
+     * (Firebase), not per-device.
+     */
+    const val ROUTE_ORIGIN_HISTORY_RETENTION_DAYS = 30
 }

@@ -27,6 +27,7 @@ import com.shimonhoter.ridelocationshare.alerts.AlertZoneManager
 import com.shimonhoter.ridelocationshare.config.RideConfig
 import com.shimonhoter.ridelocationshare.data.Prefs
 import com.shimonhoter.ridelocationshare.remote.FirebaseLocationRepository
+import com.shimonhoter.ridelocationshare.remote.StopsRepository
 import com.shimonhoter.ridelocationshare.util.ActiveWindow
 import com.shimonhoter.ridelocationshare.util.AppLog
 import com.shimonhoter.ridelocationshare.util.GeoUtil
@@ -55,6 +56,7 @@ class BroadcastService : Service() {
     private lateinit var prefs: Prefs
     private lateinit var fusedClient: FusedLocationProviderClient
     private val locationRepository = FirebaseLocationRepository()
+    private val stopsRepository = StopsRepository()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var locationCallback: LocationCallback? = null
@@ -290,10 +292,10 @@ class BroadcastService : Service() {
 
         if (isReliablyAboveMovingThreshold(location, speedKmh)) {
             AppLog.i(TAG, "Movement threshold reached, starting broadcast")
-            beginBroadcasting()
+            beginBroadcasting(location)
         } else if (isStopAndGoTrafficJam()) {
             AppLog.i(TAG, "Stop-and-go traffic pattern detected, starting broadcast")
-            beginBroadcasting()
+            beginBroadcasting(location)
         }
     }
 
@@ -355,12 +357,17 @@ class BroadcastService : Service() {
     private fun rideEndDeadlineMillis(): Long =
         prefs.rideStartTimeMillis + (prefs.tripDurationMinutes + prefs.safetyMarginMinutes) * 60_000L
 
-    private fun beginBroadcasting() {
+    /** [location] is only used to try claiming today's route-origin
+     * (docs/SPEC_EN.md 3.9) — a best-effort, fire-and-forget Firebase
+     * write that only actually takes effect the first time any device
+     * does this on a given day. */
+    private fun beginBroadcasting(location: Location) {
         isBroadcastingLocally = true
         lastMovingAtMillis = 0L
         recentSpeedSamplesKmh.clear()
         prefs.isBroadcasting = true
         prefs.rideStartTimeMillis = System.currentTimeMillis()
+        serviceScope.launch { stopsRepository.claimRouteOriginOfDay(prefs.rideCode, location.latitude, location.longitude) }
         RideSessionState.isThisDeviceBroadcasting.postValue(true)
         updateNotification()
         ensureMonitoring()

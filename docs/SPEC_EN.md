@@ -291,6 +291,61 @@ action=ACTION_AUTO_START" — without needing `adb logcat` at all. A
 `ACTION_SEND` to any other app (messaging, email) for handing off to
 support.
 
+### 3.9 Pickup stops and "raise hand"
+
+**Stops.** Any user can mark pickup-stop candidate points — tapping the
+map in a new 🚏 edit mode (identical drag/delete interaction to alert-zone
+editing in 3.5, just point-only: no radius) or a one-tap "add at current
+location" button (`MainActivity.addStopCandidateAtCurrentLocation()`).
+Each device's own candidates are stored locally (`Prefs.myStopCandidates`)
+and mirrored to Firebase (`StopsRepository.syncOwnCandidates`) under
+`rideLocation/rides/<rideCode>/stopCandidates/<uid>`.
+
+Every device then computes the same shared, named stop list from that raw
+data — entirely client-side, the same way `FirebaseLocationRepository`'s
+own location aggregation is (`StopsRepository.computeSharedStops`): all
+users' candidate points are merged wherever they fall within
+`RideConfig.STOP_MERGE_RADIUS_METERS` (100m) of each other
+(`StopsRepository.cluster` — a deterministic greedy single-pass merge,
+sorted first so every device reaches the same grouping) into one stop at
+the group's centroid. Stops are named `"תחנה 1"`, `"תחנה 2"`, … in
+ascending order of straight-line distance from a statistically estimated
+route-origin point — the app has no real road-routing (no paid directions
+API), so this is the closest available proxy for "route order", not an
+actual road-route order.
+
+**Route origin.** Whichever device is first to start broadcasting on a
+given day "claims" that day as the route's origin location, via a
+Firebase transaction (`StopsRepository.claimRouteOriginOfDay`, called from
+`BroadcastService.beginBroadcasting()`) on
+`rideLocation/rides/<rideCode>/routeOriginHistory/<yyyy-MM-dd>` — the
+transaction only writes if that day's entry is still empty, so exactly
+one device "wins" each day regardless of how many start broadcasting
+around the same time. The origin used for ordering stops is the average
+of up to `RideConfig.ROUTE_ORIGIN_HISTORY_RETENTION_DAYS` (30) days of
+this history; with none yet (a brand-new group), stops fall back to being
+ordered from the centroid of all current candidates instead, so there's
+still a consistent order from day one — this self-corrects automatically
+as real history accumulates.
+
+**Raise hand.** A ✋ button on the main screen lets a waiting passenger
+announce they're at a specific stop and want the ride to come by. If
+their own candidates resolve to exactly one shared stop, it's used
+automatically; with more than one, a chooser dialog asks which. This
+writes `rideLocation/rides/<rideCode>/handRaises/<uid>` = `{stopId,
+nickname}` (nickname only if `Prefs.showNickname` is on, mirroring how
+the live broadcast itself handles nicknames) — visible to every device
+watching the ride, not just the raiser's own: the relevant stop's map
+marker is highlighted and a banner naming the rider and stop appears
+(`MainActivity.renderHandRaiseBanners`/`pushSharedStopsToMap`). Tapping
+the button again cancels it manually. It also auto-clears
+(`MainActivity.checkHandRaiseAutoClear`) once the raiser's own device
+observes the shared ride location enter the stop's zone and then leave
+it again — never just because the ride hasn't arrived yet. This check
+runs on the raiser's own device as it watches the shared location, same
+as everything else driving this screen; it needs that device's app open
+to fire, the same expectation the broadcasting device itself already has.
+
 ## 4. Architecture & Technology
 
 ### 4.1 Android app
