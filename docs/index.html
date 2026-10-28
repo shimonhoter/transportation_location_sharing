@@ -89,6 +89,112 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
   }
   .zone-handle-delete { border-color: #8A9490; font-size: 12px; }
+  .shared-stop-marker { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+  .stop-pin { font-size: 20px; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4)); }
+  .stop-pin-active { font-size: 22px; }
+  .stop-label {
+    margin-top: 2px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-size: 11px;
+    color: #2E3A33;
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+  .stop-label-active { background: #C0392B; color: #FFFFFF; font-weight: bold; }
+  #raiseHandBtn {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    left: 10px;
+    z-index: 6;
+    width: 52px;
+    height: 52px;
+    border-radius: 26px;
+    border: none;
+    background: #8A9490;
+    color: #FFFFFF;
+    font-size: 22px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+  }
+  #raiseHandBtn.active { background: #FFB74D; }
+  #handRaiseBanner {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 56px + 54px);
+    left: 10px;
+    right: 10px;
+    z-index: 5;
+    display: none;
+    background: #C0392B;
+    color: #FFFFFF;
+    border-radius: 10px;
+    padding: 8px 14px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    font-size: 14px;
+    text-align: center;
+  }
+  #handRaiseBanner div { margin: 2px 0; }
+  #toast {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 170px);
+    left: 10px;
+    right: 10px;
+    z-index: 8;
+    display: none;
+    background: rgba(0, 0, 0, 0.8);
+    color: #FFFFFF;
+    border-radius: 8px;
+    padding: 10px 14px;
+    text-align: center;
+    font-size: 14px;
+  }
+  #promptOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 11;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    padding: 16px;
+    box-sizing: border-box;
+  }
+  #promptCard {
+    max-width: 380px;
+    width: 100%;
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  }
+  #promptCard h2 { margin: 0 0 10px; font-size: 17px; color: #2E7D6B; }
+  #promptBody input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #CCCCCC;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 15px;
+    direction: rtl;
+    text-align: right;
+    margin-bottom: 10px;
+  }
+  #promptBody button {
+    display: block;
+    width: 100%;
+    background: #2E7D6B;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-bottom: 8px;
+  }
+  #promptBody button.secondary { background: #8A9490; }
   #zoneAlertBanner {
     position: fixed;
     top: calc(env(safe-area-inset-top, 0px) + 66px);
@@ -185,6 +291,7 @@
       <li><b>🎯</b> — מרכוז אוטומטי: כשפעיל (צבע מלא), המפה עוקבת אחרי מיקום ההסעה; כבוי (עמום) משאיר את המפה איפה שהזזת אותה ידנית.</li>
       <li><b>🧭</b> — סיבוב מפה בכיוון הנסיעה (כמו Waze); כבוי = צפון תמיד למעלה.</li>
       <li><b>📍</b> — מצב עריכת אזורי התראה (ראו למטה).</li>
+      <li><b>🚏</b> — מצב עריכת תחנות עלייה שלכם, <b>📌</b> — הוספת תחנה במיקום הנוכחי, <b>👤</b> — כינוי (ראו למטה).</li>
     </ul>
 
     <h3>📍 אזורי התראה</h3>
@@ -195,6 +302,23 @@
       <li><b>🗑️</b> — לחיצה מוחקת את האזור.</li>
       <li>לחיצה כפולה על המפה יוצאת ממצב העריכה (או ללחוץ שוב על 📍).</li>
       <li>כשההסעה נכנסת לאזור <u>והדף פתוח על המסך</u>, תופיע הודעה אדומה עם צפצוף. האזורים נשמרים רק בדפדפן הזה (לא נשלחים לשרת, ולא מסונכרנים עם ה-Android).</li>
+    </ul>
+
+    <h3>🚏 תחנות עלייה</h3>
+    <ul>
+      <li>לחיצה על 🚏 נכנסת למצב עריכה (הכפתור נדלק); הקשה על המפה מוסיפה תחנה שלכם — גרירה מזיזה אותה, 🗑️ מוחק (אין רדיוס לתחנה, בשונה מאזור התראה). כפתור 📌 מוסיף תחנה ישירות במיקום הנוכחי שלכם (יבקש הרשאת מיקום מהדפדפן).</li>
+      <li>תחנות שסומנו על ידי כל המשתמשים (גם במכשירי Android) ונמצאות בטווח 100 מטר זו מזו מתמזגות אוטומטית לתחנה אחת משותפת, במיקום הממוצע — זו שמוצגת על המפה לכולם. שם התחנה («תחנה 1», «תחנה 2» וכך הלאה) נקבע לפי הזמן שעבר בפועל מתחילת המסלול עד שההסעה הגיעה אליה, לא לפי מרחק על המפה.</li>
+    </ul>
+
+    <h3>✋ הרמת יד</h3>
+    <ul>
+      <li>הכפתור הצף בצד המסך: לחיצה מודיעה לכולם הצופים בהסעה שאתם ממתינים באחת מהתחנות שסימנתם — אם סימנתם תחנה אחת היא נבחרת אוטומטית, ואם כמה תישאלו איזו. התחנה מודגשת על המפה ומופיעה הודעה קבועה עם שמכם (אם הזנתם כינוי, ראו למטה) ושם התחנה.</li>
+      <li>לחיצה חוזרת על הכפתור מבטלת ידנית. זה גם מתבטל אוטומטית לאחר שההסעה נכנסה לאזור התחנה ואז יצאה ממנו — כל עוד הדף הזה פתוח ועוקב אחרי מיקום ההסעה.</li>
+    </ul>
+
+    <h3>👤 כינוי</h3>
+    <ul>
+      <li>אופציונלי, נשמר רק בדפדפן הזה. מוצג אך ורק כשאתם מרימים יד, כדי שיידעו למי לצפות בתחנה — בלי כינוי מוצגת התווית הכללית "נוסע".</li>
     </ul>
 
     <h3>📶 שורת המצב התחתונה</h3>
@@ -209,6 +333,19 @@
 <div id="zoneAlertBanner">
   <div id="zoneAlertText"></div>
   <button id="zoneAlertCloseBtn" type="button">סגור</button>
+</div>
+
+<div id="handRaiseBanner"></div>
+
+<button id="raiseHandBtn" type="button">✋</button>
+
+<div id="toast"></div>
+
+<div id="promptOverlay">
+  <div id="promptCard">
+    <h2 id="promptTitle"></h2>
+    <div id="promptBody"></div>
+  </div>
 </div>
 
 <div id="statusBar" class="idle">מתחבר…</div>
@@ -249,6 +386,10 @@
   const MOVING_SPEED_THRESHOLD_KMH = 7.0;
   const RECENTLY_MOVING_GRACE_SECONDS = 300.0;
   const DEFAULT_CORROBORATION_RADIUS_METERS = 300;
+  // Mirrors RideConfig.STOP_MERGE_RADIUS_METERS — both the candidate-merge
+  // distance and the "ride has left this stop" radius for raise-hand
+  // auto-clear (docs/SPEC_EN.md 3.9).
+  const STOP_MERGE_RADIUS_METERS = 100.0;
   const FORBIDDEN_KEY_CHARS = ['.', '$', '#', '[', ']', '/'];
 
   function sanitizeRideCode(raw) {
@@ -256,6 +397,131 @@
       return FORBIDDEN_KEY_CHARS.indexOf(c) >= 0 ? '_' : c;
     }).join('');
     return cleaned === '' ? 'default' : cleaned;
+  }
+
+  function dayKeyString(date) {
+    var y = date.getFullYear();
+    var m = ('0' + (date.getMonth() + 1)).slice(-2);
+    var d = ('0' + date.getDate()).slice(-2);
+    return y + '-' + m + '-' + d;
+  }
+
+  // --- Local-only storage (this browser only, same privacy model as the
+  // alert zones below): my own nickname, my own stop candidates, and which
+  // stop (if any) I've currently raised my hand for. ---
+  function getNickname() {
+    try { return localStorage.getItem('ridePwaNickname') || ''; } catch (e) { return ''; }
+  }
+  function setNickname(v) {
+    try { localStorage.setItem('ridePwaNickname', v); } catch (e) {}
+  }
+  function loadMyStops() {
+    try {
+      var raw = localStorage.getItem('ridePwaMyStopCandidates');
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  }
+  function saveMyStops(stops) {
+    try { localStorage.setItem('ridePwaMyStopCandidates', JSON.stringify(stops)); } catch (e) {}
+  }
+  function getMyHandRaiseStopId() {
+    try { return localStorage.getItem('ridePwaMyHandRaiseStopId') || null; } catch (e) { return null; }
+  }
+  function setMyHandRaiseStopId(v) {
+    try {
+      if (v) localStorage.setItem('ridePwaMyHandRaiseStopId', v);
+      else localStorage.removeItem('ridePwaMyHandRaiseStopId');
+    } catch (e) {}
+  }
+  function getMyHandRaiseEntered() {
+    try { return localStorage.getItem('ridePwaMyHandRaiseEntered') === 'true'; } catch (e) { return false; }
+  }
+  function setMyHandRaiseEntered(v) {
+    try { localStorage.setItem('ridePwaMyHandRaiseEntered', v ? 'true' : 'false'); } catch (e) {}
+  }
+
+  // --- Pickup stops (docs/SPEC_EN.md 3.9), ported from StopsRepository.kt:
+  // every client merges all users' candidate points into the same shared,
+  // named stops entirely client-side, from the same raw Firebase data — no
+  // server-side computation, same as the ride-location aggregate above. ---
+  function centroidOfPoints(points) {
+    var lat = 0, lon = 0;
+    points.forEach(function (p) { lat += p.lat; lon += p.lon; });
+    return { lat: lat / points.length, lon: lon / points.length };
+  }
+
+  // Greedy single-pass merge, sorted first so every client reaches the
+  // same grouping — see StopsRepository.cluster() for the full rationale
+  // (including the accepted long-chain-of-neighbors simplification).
+  function clusterStopPoints(points) {
+    var remaining = points.slice().sort(function (a, b) { return (a.lat - b.lat) || (a.lon - b.lon); });
+    var clusters = [];
+    while (remaining.length > 0) {
+      var group = [remaining.shift()];
+      var changed = true;
+      while (changed) {
+        changed = false;
+        var centroid = centroidOfPoints(group);
+        for (var i = remaining.length - 1; i >= 0; i--) {
+          if (distanceMeters(remaining[i].lat, remaining[i].lon, centroid.lat, centroid.lon) <= STOP_MERGE_RADIUS_METERS) {
+            group.push(remaining[i]);
+            remaining.splice(i, 1);
+            changed = true;
+          }
+        }
+      }
+      clusters.push(group);
+    }
+    return clusters.map(centroidOfPoints);
+  }
+
+  // Orders stops by their observed position along the route's actual
+  // timeline (average elapsed time since route start when the ride was
+  // seen entering each stop), not straight-line distance — see
+  // StopsRepository.computeSharedStops() for the full rationale. A stop
+  // with no arrival samples yet is positioned using the group's own
+  // observed pace applied to its distance from the origin, keeping every
+  // stop's sort key in the same unit (milliseconds); with zero samples
+  // anywhere, this reduces to plain distance-from-origin ordering.
+  function computeSharedStops(candidatesByUid, originHistory, arrivalHistory) {
+    var allPoints = [];
+    Object.keys(candidatesByUid).forEach(function (uid) {
+      candidatesByUid[uid].forEach(function (c) { allPoints.push({ lat: c.lat, lon: c.lon }); });
+    });
+    if (allPoints.length === 0) return [];
+    var centroids = clusterStopPoints(allPoints);
+    var origin = originHistory.length > 0 ? centroidOfPoints(originHistory) : centroidOfPoints(allPoints);
+
+    var positioned = centroids.map(function (point) {
+      var distance = distanceMeters(point.lat, point.lon, origin.lat, origin.lon);
+      var matching = arrivalHistory.filter(function (s) {
+        return distanceMeters(s.lat, s.lon, point.lat, point.lon) <= STOP_MERGE_RADIUS_METERS;
+      });
+      var meanElapsed = null;
+      if (matching.length > 0) {
+        var total = matching.reduce(function (sum, s) { return sum + s.elapsedMillis; }, 0);
+        meanElapsed = total / matching.length;
+      }
+      return { point: point, distance: distance, meanElapsed: meanElapsed };
+    });
+
+    var withSamples = positioned.filter(function (p) { return p.meanElapsed !== null; });
+    var pace = null;
+    if (withSamples.length > 0) {
+      var totalElapsed = withSamples.reduce(function (sum, p) { return sum + p.meanElapsed; }, 0);
+      var totalDistance = Math.max(1.0, withSamples.reduce(function (sum, p) { return sum + p.distance; }, 0));
+      pace = totalElapsed / totalDistance;
+    }
+
+    var ordered = positioned.slice().sort(function (a, b) {
+      var ka = a.meanElapsed !== null ? a.meanElapsed : (pace !== null ? pace * a.distance : a.distance);
+      var kb = b.meanElapsed !== null ? b.meanElapsed : (pace !== null ? pace * b.distance : b.distance);
+      return ka - kb;
+    });
+
+    return ordered.map(function (p, index) {
+      return { id: 'stop_' + (index + 1), name: 'תחנה ' + (index + 1), lat: p.point.lat, lon: p.point.lon };
+    });
   }
 
   function distanceMeters(lat1, lon1, lat2, lon2) {
@@ -534,7 +800,10 @@
     saveZones();
     applyStoredZones();
   });
-  map.on('dblclick', function () { if (zoneEditModeEnabled) exitZoneEditMode(); });
+  map.on('dblclick', function () {
+    if (zoneEditModeEnabled) exitZoneEditMode();
+    if (stopEditModeEnabled) exitStopEditMode();
+  });
 
   function ZoneEditControl() {}
   ZoneEditControl.prototype.onAdd = function () {
@@ -814,21 +1083,39 @@
   firebase.initializeApp(firebaseConfig);
   var auth = firebase.auth();
   var database = firebase.database();
+  var myUid = null;
+
+  function stopCandidatesRef(sanitized) { return database.ref('rideLocation/rides/' + sanitized + '/stopCandidates'); }
+  function routeOriginHistoryRef(sanitized) { return database.ref('rideLocation/rides/' + sanitized + '/routeOriginHistory'); }
+  function stopArrivalHistoryRef(sanitized) { return database.ref('rideLocation/rides/' + sanitized + '/stopArrivalHistory'); }
+  function handRaisesRef(sanitized) { return database.ref('rideLocation/rides/' + sanitized + '/handRaises'); }
 
   var currentListenerRef = null;
   var currentListenerCallback = null;
   var lastDevicesValue = null;
+  var lastAggregateValue = null;
+  var currentSanitizedRideCode = null;
+
+  var stopCandidatesListenerRef = null, stopCandidatesCallback = null, lastStopCandidatesValue = null;
+  var originHistoryListenerRef = null, originHistoryCallback = null, lastOriginHistoryValue = null;
+  var arrivalHistoryListenerRef = null, arrivalHistoryCallback = null, lastArrivalHistoryValue = null;
+  var handRaisesListenerRef = null, handRaisesCallback = null;
+  var latestSharedStops = [];
+  var latestHandRaises = [];
+  var recordedStopArrivalKeysToday = {};
 
   function attachRideCodeListener(rawCode) {
     if (currentListenerRef && currentListenerCallback) {
       currentListenerRef.off('value', currentListenerCallback);
     }
+    detachStopsListeners();
     clearRideLocation();
     lastDevicesValue = null;
     statusBarEl.className = 'idle';
     statusBarEl.textContent = 'מתחבר…';
 
     var sanitized = sanitizeRideCode(rawCode);
+    currentSanitizedRideCode = sanitized;
     var devicesRef = database.ref('rideLocation/rides/' + sanitized + '/devices');
     var callback = function (snapshot) {
       lastDevicesValue = snapshot.val();
@@ -837,10 +1124,483 @@
     devicesRef.on('value', callback);
     currentListenerRef = devicesRef;
     currentListenerCallback = callback;
+
+    attachStopsListeners(sanitized);
+    syncMyStopCandidatesToFirebase();
+  }
+
+  function attachStopsListeners(sanitized) {
+    stopCandidatesListenerRef = stopCandidatesRef(sanitized);
+    stopCandidatesCallback = function (snapshot) {
+      lastStopCandidatesValue = snapshot.val() || {};
+      recomputeSharedStops();
+    };
+    stopCandidatesListenerRef.on('value', stopCandidatesCallback);
+
+    originHistoryListenerRef = routeOriginHistoryRef(sanitized);
+    originHistoryCallback = function (snapshot) {
+      lastOriginHistoryValue = snapshot.val() || {};
+      recomputeSharedStops();
+    };
+    originHistoryListenerRef.on('value', originHistoryCallback);
+
+    arrivalHistoryListenerRef = stopArrivalHistoryRef(sanitized);
+    arrivalHistoryCallback = function (snapshot) {
+      lastArrivalHistoryValue = snapshot.val() || {};
+      recomputeSharedStops();
+    };
+    arrivalHistoryListenerRef.on('value', arrivalHistoryCallback);
+
+    handRaisesListenerRef = handRaisesRef(sanitized);
+    handRaisesCallback = function (snapshot) {
+      var raw = snapshot.val() || {};
+      latestHandRaises = Object.keys(raw).filter(function (uid) {
+        return raw[uid] && typeof raw[uid].stopId === 'string';
+      }).map(function (uid) {
+        return { uid: uid, stopId: raw[uid].stopId, nickname: raw[uid].nickname || null };
+      });
+      applySharedStopsToMap();
+      renderHandRaiseBanner();
+    };
+    handRaisesListenerRef.on('value', handRaisesCallback);
+  }
+
+  function detachStopsListeners() {
+    if (stopCandidatesListenerRef && stopCandidatesCallback) stopCandidatesListenerRef.off('value', stopCandidatesCallback);
+    if (originHistoryListenerRef && originHistoryCallback) originHistoryListenerRef.off('value', originHistoryCallback);
+    if (arrivalHistoryListenerRef && arrivalHistoryCallback) arrivalHistoryListenerRef.off('value', arrivalHistoryCallback);
+    if (handRaisesListenerRef && handRaisesCallback) handRaisesListenerRef.off('value', handRaisesCallback);
+    stopCandidatesListenerRef = originHistoryListenerRef = arrivalHistoryListenerRef = handRaisesListenerRef = null;
+    lastStopCandidatesValue = lastOriginHistoryValue = lastArrivalHistoryValue = null;
+    currentSanitizedRideCode = null;
+    latestSharedStops = [];
+    latestHandRaises = [];
+    applySharedStopsToMap();
+    renderHandRaiseBanner();
+  }
+
+  // Recomputes once all three sources have reported at least once, mirroring
+  // StopsRepository.observeSharedStops()'s "gotCandidates/gotOriginHistory/
+  // gotArrivalHistory" gate.
+  function recomputeSharedStops() {
+    if (lastStopCandidatesValue === null || lastOriginHistoryValue === null || lastArrivalHistoryValue === null) return;
+
+    var candidatesByUid = {};
+    Object.keys(lastStopCandidatesValue).forEach(function (uid) {
+      var userCands = lastStopCandidatesValue[uid] || {};
+      candidatesByUid[uid] = Object.keys(userCands).map(function (cid) {
+        return { id: cid, lat: userCands[cid].lat, lon: userCands[cid].lon };
+      }).filter(function (c) { return typeof c.lat === 'number' && typeof c.lon === 'number'; });
+    });
+
+    var originHistory = Object.keys(lastOriginHistoryValue).map(function (day) {
+      return lastOriginHistoryValue[day];
+    }).filter(function (v) { return v && typeof v.lat === 'number' && typeof v.lon === 'number'; });
+
+    var arrivalHistory = [];
+    Object.keys(lastArrivalHistoryValue).forEach(function (day) {
+      var cells = lastArrivalHistoryValue[day] || {};
+      Object.keys(cells).forEach(function (cellKey) {
+        var v = cells[cellKey];
+        if (v && typeof v.lat === 'number' && typeof v.lon === 'number' && typeof v.elapsedMillis === 'number') {
+          arrivalHistory.push(v);
+        }
+      });
+    });
+
+    latestSharedStops = computeSharedStops(candidatesByUid, originHistory, arrivalHistory);
+    applySharedStopsToMap();
+    checkHandRaiseAutoClear(lastAggregateValue);
+    recordStopArrivalsIfNeeded(lastAggregateValue);
+  }
+
+  // --- Writing this device's own data (the PWA is no longer purely
+  // read-only: iPhone-only users need to be able to mark their own stop
+  // and raise/cancel their own hand too, docs/SPEC_EN.md 3.9) ---
+  function syncMyStopCandidatesToFirebase() {
+    if (!currentSanitizedRideCode || !myUid) return;
+    var data = {};
+    loadMyStops().forEach(function (c) { data[c.id] = { lat: c.lat, lon: c.lon }; });
+    stopCandidatesRef(currentSanitizedRideCode).child(myUid).set(data);
+  }
+
+  function writeMyHandRaise(stopId) {
+    if (!currentSanitizedRideCode || !myUid) return;
+    var nickname = getNickname().trim();
+    handRaisesRef(currentSanitizedRideCode).child(myUid).set({
+      stopId: stopId,
+      nickname: nickname || null,
+      updatedAt: Date.now()
+    });
+  }
+
+  function clearMyHandRaiseFromFirebase() {
+    if (!currentSanitizedRideCode || !myUid) return;
+    handRaisesRef(currentSanitizedRideCode).child(myUid).remove();
+  }
+
+  // Logs, once per stop per day, how long after today's route start the
+  // ride was observed entering a stop's zone — a "first write wins"
+  // transaction, same as BroadcastService/MainActivity on Android. Any
+  // client watching the shared ride (Android or this PWA) can contribute,
+  // so the timeline-based ordering keeps improving either way.
+  function recordStopArrivalsIfNeeded(agg) {
+    if (!agg || !currentSanitizedRideCode || !lastOriginHistoryValue) return;
+    var todayKey = dayKeyString(new Date());
+    var todayEntry = lastOriginHistoryValue[todayKey];
+    if (!todayEntry || typeof todayEntry.startedAtMillis !== 'number') return;
+    var elapsedMillis = Date.now() - todayEntry.startedAtMillis;
+    if (elapsedMillis < 0) return;
+
+    latestSharedStops.forEach(function (stop) {
+      var dedupeKey = todayKey + '|' + stop.id;
+      if (recordedStopArrivalKeysToday[dedupeKey]) return;
+      var distance = distanceMeters(agg.lat, agg.lon, stop.lat, stop.lon);
+      if (distance > STOP_MERGE_RADIUS_METERS) return;
+      recordedStopArrivalKeysToday[dedupeKey] = true;
+      var cellKey = Math.round(stop.lat * 10000) + '_' + Math.round(stop.lon * 10000);
+      stopArrivalHistoryRef(currentSanitizedRideCode).child(todayKey).child(cellKey).transaction(function (current) {
+        return current === null ? { lat: stop.lat, lon: stop.lon, elapsedMillis: elapsedMillis } : current;
+      });
+    });
+  }
+
+  // --- Shared stop markers + raise-hand banner/highlight (everyone sees
+  // these — read-only display of the same merged data Android shows) ---
+  var sharedStopMarkers = {};
+
+  function handRaiseBannerText(raise, stop) {
+    var who = (raise.nickname && raise.nickname.trim()) ? raise.nickname.trim() : 'נוסע';
+    var stopName = stop ? stop.name : '';
+    return '✋ ' + who + ' מבקש/ת לעלות ב' + stopName;
+  }
+
+  function applySharedStopsToMap() {
+    var currentIds = {};
+    latestSharedStops.forEach(function (stop) {
+      currentIds[stop.id] = true;
+      if (!sharedStopMarkers[stop.id]) {
+        var el = document.createElement('div');
+        el.className = 'shared-stop-marker';
+        var pinEl = document.createElement('div');
+        var labelEl = document.createElement('div');
+        el.appendChild(pinEl);
+        el.appendChild(labelEl);
+        var marker = new maplibregl.Marker({ element: el }).setLngLat([stop.lon, stop.lat]).addTo(map);
+        sharedStopMarkers[stop.id] = { marker: marker, pinEl: pinEl, labelEl: labelEl };
+      }
+      var entry = sharedStopMarkers[stop.id];
+      entry.marker.setLngLat([stop.lon, stop.lat]);
+      var raise = latestHandRaises.filter(function (r) { return r.stopId === stop.id; })[0];
+      var active = !!raise;
+      entry.pinEl.className = 'stop-pin' + (active ? ' stop-pin-active' : '');
+      entry.pinEl.textContent = active ? '✋🚏' : '🚏';
+      entry.labelEl.className = 'stop-label' + (active ? ' stop-label-active' : '');
+      entry.labelEl.textContent = active ? handRaiseBannerText(raise, stop) : stop.name;
+    });
+    Object.keys(sharedStopMarkers).forEach(function (id) {
+      if (!currentIds[id]) {
+        sharedStopMarkers[id].marker.remove();
+        delete sharedStopMarkers[id];
+      }
+    });
+  }
+
+  var handRaiseBannerEl = document.getElementById('handRaiseBanner');
+  function renderHandRaiseBanner() {
+    handRaiseBannerEl.innerHTML = '';
+    if (latestHandRaises.length === 0) {
+      handRaiseBannerEl.style.display = 'none';
+      return;
+    }
+    latestHandRaises.forEach(function (raise) {
+      var stop = latestSharedStops.filter(function (s) { return s.id === raise.stopId; })[0];
+      var line = document.createElement('div');
+      line.textContent = handRaiseBannerText(raise, stop);
+      handRaiseBannerEl.appendChild(line);
+    });
+    handRaiseBannerEl.style.display = 'block';
+  }
+
+  // --- My own stop candidates: map edit mode (🚏) + "add at current
+  // location" (📌) — point-only, no radius (merging within
+  // STOP_MERGE_RADIUS_METERS is what gives a stop its effective radius). ---
+  var stopEditModeEnabled = false;
+  var stopEditBtnEl = null;
+  var stopEditHandles = {};
+
+  // One group, three buttons — matches StyleSwitcherControl's pattern,
+  // instead of stacking three separate control boxes down the side of a
+  // small iPhone screen.
+  function StopsAndNicknameControl() {}
+  StopsAndNicknameControl.prototype.onAdd = function () {
+    var container = document.createElement('div');
+    container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+
+    var stopEditBtn = document.createElement('button');
+    stopEditBtn.type = 'button';
+    stopEditBtn.title = 'הוספה ועריכה של תחנות עלייה שלי';
+    stopEditBtn.textContent = '🚏';
+    stopEditBtn.style.opacity = '0.4';
+    stopEditBtn.onclick = function () { if (stopEditModeEnabled) exitStopEditMode(); else enterStopEditMode(); };
+    stopEditBtnEl = stopEditBtn;
+    container.appendChild(stopEditBtn);
+
+    var addHereBtn = document.createElement('button');
+    addHereBtn.type = 'button';
+    addHereBtn.title = 'הוסף תחנת עלייה במיקום הנוכחי';
+    addHereBtn.textContent = '📌';
+    addHereBtn.onclick = addStopAtCurrentLocation;
+    container.appendChild(addHereBtn);
+
+    var nicknameBtn = document.createElement('button');
+    nicknameBtn.type = 'button';
+    nicknameBtn.title = 'כינוי (לשימוש בהרמת יד)';
+    nicknameBtn.textContent = '👤';
+    nicknameBtn.onclick = showNicknameEditor;
+    container.appendChild(nicknameBtn);
+
+    this._container = container;
+    return container;
+  };
+  StopsAndNicknameControl.prototype.onRemove = function () { this._container.parentNode.removeChild(this._container); };
+  map.addControl(new StopsAndNicknameControl(), 'top-right');
+
+  map.on('click', function (e) {
+    if (!stopEditModeEnabled) return;
+    addMyStopCandidate(e.lngLat.lat, e.lngLat.lng);
+  });
+
+  function enterStopEditMode() {
+    stopEditModeEnabled = true;
+    if (stopEditBtnEl) stopEditBtnEl.style.opacity = '1';
+    if (autoCenterEnabled) autoCenterEnabled = false;
+    map.doubleClickZoom.disable();
+    syncStopEditHandles();
+  }
+
+  function exitStopEditMode() {
+    stopEditModeEnabled = false;
+    if (stopEditBtnEl) stopEditBtnEl.style.opacity = '0.4';
+    Object.keys(stopEditHandles).forEach(removeStopEditHandlesForId);
+    map.doubleClickZoom.enable();
+    autoCenterEnabled = true;
+    if (rideMarker) map.easeTo({ center: rideMarker.getLngLat(), zoom: map.getZoom() });
+  }
+
+  function addStopAtCurrentLocation() {
+    if (!navigator.geolocation) {
+      showToast('מיקום אינו נתמך בדפדפן הזה');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      addMyStopCandidate(pos.coords.latitude, pos.coords.longitude);
+      showToast('תחנה נוספה במיקום הנוכחי');
+    }, function () {
+      showToast('לא ניתן לקבל את המיקום הנוכחי — יש לאשר הרשאת מיקום');
+    }, { enableHighAccuracy: true, timeout: 10000 });
+  }
+
+  function addMyStopCandidate(lat, lon) {
+    var mine = loadMyStops();
+    mine.push({ id: 'mystop_' + Date.now() + '_' + Math.round(Math.random() * 1000), lat: lat, lon: lon });
+    saveMyStops(mine);
+    syncStopEditHandles();
+    syncMyStopCandidatesToFirebase();
+  }
+
+  function moveMyStopCandidate(id, lat, lon) {
+    saveMyStops(loadMyStops().map(function (c) { return c.id === id ? { id: id, lat: lat, lon: lon } : c; }));
+    syncMyStopCandidatesToFirebase();
+  }
+
+  function deleteMyStopCandidate(id) {
+    saveMyStops(loadMyStops().filter(function (c) { return c.id !== id; }));
+    removeStopEditHandlesForId(id);
+    syncMyStopCandidatesToFirebase();
+  }
+
+  function syncStopEditHandles() {
+    if (!stopEditModeEnabled) return;
+    var currentIds = {};
+    loadMyStops().forEach(function (stop) {
+      currentIds[stop.id] = true;
+      if (!stopEditHandles[stop.id]) addStopEditHandlesFor(stop);
+    });
+    Object.keys(stopEditHandles).forEach(function (id) {
+      if (!currentIds[id]) removeStopEditHandlesForId(id);
+    });
+  }
+
+  function addStopEditHandlesFor(stop) {
+    var geom = { lat: stop.lat, lon: stop.lon };
+
+    var pinEl = document.createElement('div');
+    pinEl.className = 'zone-handle';
+    pinEl.textContent = '🚏';
+    var pinMarker = new maplibregl.Marker({ element: pinEl, draggable: true }).setLngLat([geom.lon, geom.lat]).addTo(map);
+
+    var deleteEl = document.createElement('div');
+    deleteEl.className = 'zone-handle zone-handle-delete';
+    deleteEl.textContent = '🗑️';
+    var deleteStart = destinationLatLon(geom.lat, geom.lon, 30, 0);
+    var deleteMarker = new maplibregl.Marker({ element: deleteEl }).setLngLat([deleteStart[1], deleteStart[0]]).addTo(map);
+    deleteEl.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      deleteMyStopCandidate(stop.id);
+    });
+
+    function repositionDeleteMarker() {
+      var pos = destinationLatLon(geom.lat, geom.lon, 30, 0);
+      deleteMarker.setLngLat([pos[1], pos[0]]);
+    }
+    pinMarker.on('drag', function () {
+      var ll = pinMarker.getLngLat();
+      geom.lat = ll.lat; geom.lon = ll.lng;
+      repositionDeleteMarker();
+    });
+    pinMarker.on('dragend', function () { moveMyStopCandidate(stop.id, geom.lat, geom.lon); });
+
+    stopEditHandles[stop.id] = { pinMarker: pinMarker, deleteMarker: deleteMarker };
+  }
+
+  function removeStopEditHandlesForId(id) {
+    var handles = stopEditHandles[id];
+    if (!handles) return;
+    handles.pinMarker.remove();
+    handles.deleteMarker.remove();
+    delete stopEditHandles[id];
+  }
+
+  // --- Raise hand (docs/SPEC_EN.md 3.9) ---
+  var raiseHandBtnEl = document.getElementById('raiseHandBtn');
+
+  function myEligibleSharedStops() {
+    var mine = loadMyStops();
+    if (mine.length === 0) return [];
+    return latestSharedStops.filter(function (stop) {
+      return mine.some(function (c) { return distanceMeters(c.lat, c.lon, stop.lat, stop.lon) <= STOP_MERGE_RADIUS_METERS; });
+    });
+  }
+
+  function renderRaiseHandButton() {
+    var active = !!getMyHandRaiseStopId();
+    raiseHandBtnEl.className = active ? 'active' : '';
+  }
+
+  function toggleHandRaise() {
+    if (getMyHandRaiseStopId()) {
+      cancelMyHandRaise();
+      return;
+    }
+    var eligible = myEligibleSharedStops();
+    if (eligible.length === 0) {
+      showToast('סמנו קודם תחנת עלייה על המפה (🚏) או הוסיפו תחנה במיקום הנוכחי (📌)');
+    } else if (eligible.length === 1) {
+      raiseHandFor(eligible[0]);
+    } else {
+      showStopChooser(eligible);
+    }
+  }
+
+  function raiseHandFor(stop) {
+    setMyHandRaiseStopId(stop.id);
+    setMyHandRaiseEntered(false);
+    writeMyHandRaise(stop.id);
+    renderRaiseHandButton();
+    showToast('הרמת יד נשלחה');
+  }
+
+  function cancelMyHandRaise() {
+    setMyHandRaiseStopId(null);
+    setMyHandRaiseEntered(false);
+    clearMyHandRaiseFromFirebase();
+    renderRaiseHandButton();
+    showToast('הרמת יד בוטלה');
+  }
+
+  // Auto-clears once the shared ride location is observed entering this
+  // stop's zone and then leaving it again — never just because it hasn't
+  // arrived yet (mirrors MainActivity.checkHandRaiseAutoClear exactly).
+  function checkHandRaiseAutoClear(agg) {
+    var stopId = getMyHandRaiseStopId();
+    if (!stopId || !agg) return;
+    var stop = latestSharedStops.filter(function (s) { return s.id === stopId; })[0];
+    if (!stop) return;
+    var distance = distanceMeters(agg.lat, agg.lon, stop.lat, stop.lon);
+    if (distance <= STOP_MERGE_RADIUS_METERS) {
+      setMyHandRaiseEntered(true);
+    } else if (getMyHandRaiseEntered()) {
+      cancelMyHandRaise();
+    }
+  }
+
+  raiseHandBtnEl.onclick = toggleHandRaise;
+  renderRaiseHandButton();
+
+  // --- Small reusable modal (stop chooser / nickname editor) ---
+  var promptOverlayEl = document.getElementById('promptOverlay');
+  var promptTitleEl = document.getElementById('promptTitle');
+  var promptBodyEl = document.getElementById('promptBody');
+
+  function hidePrompt() { promptOverlayEl.style.display = 'none'; }
+  promptOverlayEl.onclick = function (e) { if (e.target === promptOverlayEl) hidePrompt(); };
+
+  function showStopChooser(stops) {
+    promptTitleEl.textContent = 'באיזו תחנה אתם ממתינים?';
+    promptBodyEl.innerHTML = '';
+    stops.forEach(function (stop) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = stop.name;
+      btn.onclick = function () { hidePrompt(); raiseHandFor(stop); };
+      promptBodyEl.appendChild(btn);
+    });
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'secondary';
+    cancelBtn.textContent = 'ביטול';
+    cancelBtn.onclick = hidePrompt;
+    promptBodyEl.appendChild(cancelBtn);
+    promptOverlayEl.style.display = 'flex';
+  }
+
+  function showNicknameEditor() {
+    promptTitleEl.textContent = 'כינוי (אופציונלי)';
+    promptBodyEl.innerHTML = '';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = getNickname();
+    input.placeholder = 'יוצג רק בהרמת יד';
+    promptBodyEl.appendChild(input);
+    var saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.textContent = 'שמור';
+    saveBtn.onclick = function () { setNickname(input.value.trim()); hidePrompt(); };
+    promptBodyEl.appendChild(saveBtn);
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'secondary';
+    cancelBtn.textContent = 'ביטול';
+    cancelBtn.onclick = hidePrompt;
+    promptBodyEl.appendChild(cancelBtn);
+    promptOverlayEl.style.display = 'flex';
+    input.focus();
+  }
+
+  // --- Toast (brief, auto-dismissing feedback messages) ---
+  var toastEl = document.getElementById('toast');
+  var toastTimeout = null;
+  function showToast(text) {
+    toastEl.textContent = text;
+    toastEl.style.display = 'block';
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(function () { toastEl.style.display = 'none'; }, 2500);
   }
 
   function refreshFromLastValue() {
     var agg = aggregate(lastDevicesValue, Date.now(), DEFAULT_CORROBORATION_RADIUS_METERS);
+    lastAggregateValue = agg;
     if (agg) {
       updateRideLocation(agg.lat, agg.lon);
     } else {
@@ -848,6 +1608,8 @@
     }
     renderStatus(agg);
     checkAlertZones(agg);
+    recordStopArrivalsIfNeeded(agg);
+    checkHandRaiseAutoClear(agg);
   }
 
   // Re-evaluates staleness even when no new write has arrived (e.g. the
@@ -883,6 +1645,7 @@
     currentListenerRef = null;
     currentListenerCallback = null;
     lastDevicesValue = null;
+    detachStopsListeners();
     clearRideLocation();
     alertedZoneIds = {};
     statusBarEl.className = 'idle';
@@ -897,7 +1660,8 @@
     if (e.key === 'Enter' && !isConnected) connectBtn.click();
   });
 
-  auth.signInAnonymously().then(function () {
+  auth.signInAnonymously().then(function (cred) {
+    myUid = cred.user.uid;
     connectToRideCode();
   }).catch(function (err) {
     statusBarEl.className = 'idle';
