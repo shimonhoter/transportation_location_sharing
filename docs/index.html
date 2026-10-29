@@ -483,11 +483,19 @@
   // observed pace applied to its distance from the origin, keeping every
   // stop's sort key in the same unit (milliseconds); with zero samples
   // anywhere, this reduces to plain distance-from-origin ordering.
-  function computeSharedStops(candidatesByUid, originHistory, arrivalHistory) {
+  function computeSharedStops(candidatesByUid, autoDetected, originHistory, arrivalHistory) {
     var allPoints = [];
     Object.keys(candidatesByUid).forEach(function (uid) {
       candidatesByUid[uid].forEach(function (c) { allPoints.push({ lat: c.lat, lon: c.lon }); });
     });
+    // Android devices also contribute automatically-detected stop points
+    // (docs/SPEC_EN.md 3.10) — mixed in here alongside manually-pinned
+    // candidates before clustering, exactly like StopsRepository.computeSharedStops()
+    // on the Android side, so both platforms compute the same shared-stop
+    // list from the same raw Firebase data. This PWA never writes to
+    // autoDetectedStops itself (it has no "broadcast my ride" feature to
+    // detect a full stop from), only reads it.
+    autoDetected.forEach(function (p) { allPoints.push({ lat: p.lat, lon: p.lon }); });
     if (allPoints.length === 0) return [];
     var centroids = clusterStopPoints(allPoints);
     var origin = originHistory.length > 0 ? centroidOfPoints(originHistory) : centroidOfPoints(allPoints);
@@ -1086,6 +1094,7 @@
   var myUid = null;
 
   function stopCandidatesRef(sanitized) { return database.ref('rideLocation/rides/' + sanitized + '/stopCandidates'); }
+  function autoDetectedStopsRef(sanitized) { return database.ref('rideLocation/rides/' + sanitized + '/autoDetectedStops'); }
   function routeOriginHistoryRef(sanitized) { return database.ref('rideLocation/rides/' + sanitized + '/routeOriginHistory'); }
   function stopArrivalHistoryRef(sanitized) { return database.ref('rideLocation/rides/' + sanitized + '/stopArrivalHistory'); }
   function handRaisesRef(sanitized) { return database.ref('rideLocation/rides/' + sanitized + '/handRaises'); }
@@ -1097,6 +1106,7 @@
   var currentSanitizedRideCode = null;
 
   var stopCandidatesListenerRef = null, stopCandidatesCallback = null, lastStopCandidatesValue = null;
+  var autoDetectedListenerRef = null, autoDetectedCallback = null, lastAutoDetectedValue = null;
   var originHistoryListenerRef = null, originHistoryCallback = null, lastOriginHistoryValue = null;
   var arrivalHistoryListenerRef = null, arrivalHistoryCallback = null, lastArrivalHistoryValue = null;
   var handRaisesListenerRef = null, handRaisesCallback = null;
@@ -1137,6 +1147,13 @@
     };
     stopCandidatesListenerRef.on('value', stopCandidatesCallback);
 
+    autoDetectedListenerRef = autoDetectedStopsRef(sanitized);
+    autoDetectedCallback = function (snapshot) {
+      lastAutoDetectedValue = snapshot.val() || {};
+      recomputeSharedStops();
+    };
+    autoDetectedListenerRef.on('value', autoDetectedCallback);
+
     originHistoryListenerRef = routeOriginHistoryRef(sanitized);
     originHistoryCallback = function (snapshot) {
       lastOriginHistoryValue = snapshot.val() || {};
@@ -1167,11 +1184,12 @@
 
   function detachStopsListeners() {
     if (stopCandidatesListenerRef && stopCandidatesCallback) stopCandidatesListenerRef.off('value', stopCandidatesCallback);
+    if (autoDetectedListenerRef && autoDetectedCallback) autoDetectedListenerRef.off('value', autoDetectedCallback);
     if (originHistoryListenerRef && originHistoryCallback) originHistoryListenerRef.off('value', originHistoryCallback);
     if (arrivalHistoryListenerRef && arrivalHistoryCallback) arrivalHistoryListenerRef.off('value', arrivalHistoryCallback);
     if (handRaisesListenerRef && handRaisesCallback) handRaisesListenerRef.off('value', handRaisesCallback);
-    stopCandidatesListenerRef = originHistoryListenerRef = arrivalHistoryListenerRef = handRaisesListenerRef = null;
-    lastStopCandidatesValue = lastOriginHistoryValue = lastArrivalHistoryValue = null;
+    stopCandidatesListenerRef = autoDetectedListenerRef = originHistoryListenerRef = arrivalHistoryListenerRef = handRaisesListenerRef = null;
+    lastStopCandidatesValue = lastAutoDetectedValue = lastOriginHistoryValue = lastArrivalHistoryValue = null;
     currentSanitizedRideCode = null;
     latestSharedStops = [];
     latestHandRaises = [];
@@ -1179,11 +1197,11 @@
     renderHandRaiseBanner();
   }
 
-  // Recomputes once all three sources have reported at least once, mirroring
-  // StopsRepository.observeSharedStops()'s "gotCandidates/gotOriginHistory/
-  // gotArrivalHistory" gate.
+  // Recomputes once all four sources have reported at least once, mirroring
+  // StopsRepository.observeSharedStops()'s "gotCandidates/gotAutoDetected/
+  // gotOriginHistory/gotArrivalHistory" gate.
   function recomputeSharedStops() {
-    if (lastStopCandidatesValue === null || lastOriginHistoryValue === null || lastArrivalHistoryValue === null) return;
+    if (lastStopCandidatesValue === null || lastAutoDetectedValue === null || lastOriginHistoryValue === null || lastArrivalHistoryValue === null) return;
 
     var candidatesByUid = {};
     Object.keys(lastStopCandidatesValue).forEach(function (uid) {
@@ -1191,6 +1209,15 @@
       candidatesByUid[uid] = Object.keys(userCands).map(function (cid) {
         return { id: cid, lat: userCands[cid].lat, lon: userCands[cid].lon };
       }).filter(function (c) { return typeof c.lat === 'number' && typeof c.lon === 'number'; });
+    });
+
+    var autoDetected = [];
+    Object.keys(lastAutoDetectedValue).forEach(function (day) {
+      var entries = lastAutoDetectedValue[day] || {};
+      Object.keys(entries).forEach(function (entryId) {
+        var v = entries[entryId];
+        if (v && typeof v.lat === 'number' && typeof v.lon === 'number') autoDetected.push({ lat: v.lat, lon: v.lon });
+      });
     });
 
     var originHistory = Object.keys(lastOriginHistoryValue).map(function (day) {
@@ -1208,7 +1235,7 @@
       });
     });
 
-    latestSharedStops = computeSharedStops(candidatesByUid, originHistory, arrivalHistory);
+    latestSharedStops = computeSharedStops(candidatesByUid, autoDetected, originHistory, arrivalHistory);
     applySharedStopsToMap();
     checkHandRaiseAutoClear(lastAggregateValue);
     recordStopArrivalsIfNeeded(lastAggregateValue);
