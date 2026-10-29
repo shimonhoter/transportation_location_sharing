@@ -111,6 +111,16 @@ per-device history).
   next ~15-minute `RideCheckWorker` tick (3.8), `MainActivity` also starts
   automatic monitoring the moment the app is opened, if the active
   day/window condition (3.3) currently allows it.
+- **Immediate check on Settings save:** saving Settings
+  (`SettingsActivity.save()` → `BroadcastService.applySettingsChange()`)
+  re-evaluates the same active day/time window condition right away too,
+  rather than waiting for the next `RideCheckWorker` tick — widening the
+  window to cover "now" starts monitoring immediately, and narrowing it
+  past "now" stops an idle monitor that was only running because of the
+  old window. It never interrupts a broadcast already in progress: a
+  mid-ride device keeps broadcasting regardless, exactly as the window
+  condition already only ever gates idle *monitoring*, never an
+  already-started ride (see the stop conditions above).
 - **Fast first check on (re)start:** a cold GPS fix can take far longer
   than the configured update interval to arrive — noticeable right after
   the service restarts from nothing (boot, a `RideCheckWorker` tick, or
@@ -363,6 +373,39 @@ it again — never just because the ride hasn't arrived yet. This check
 runs on the raiser's own device as it watches the shared location, same
 as everything else driving this screen; it needs that device's app open
 to fire, the same expectation the broadcasting device itself already has.
+
+### 3.10 Automatic pickup-stop detection
+Pickup stops don't only come from someone tapping the map (3.9) — a
+broadcasting device also contributes candidate points automatically.
+`BroadcastService.checkAutoStopDetection()` watches every location fix
+while actively broadcasting: once the device's speed has stayed at or
+below `RideConfig.TRAFFIC_JAM_STOP_SPEED_KMH` (2 km/h — the same
+"near-complete stop" reading the stop-and-go traffic-jam detection in 3.2
+already uses) continuously for at least `Prefs.autoStopDetectionSeconds`
+(a user-configurable duration, default 15s, bounded to
+`RideConfig.MIN_AUTO_STOP_DETECTION_SECONDS`–`MAX_AUTO_STOP_DETECTION_SECONDS`,
+i.e. 5–40s), that stop is recorded exactly once — the moment the
+threshold is reached, not only once motion resumes, so it still fires
+even if the stop continues well past that point.
+
+Each detection is one push-keyed entry under
+`rideLocation/rides/<rideCode>/autoDetectedStops/<yyyy-MM-dd>`
+(`StopsRepository.recordAutoDetectedStop`), pruned the same way as the
+other day-keyed history nodes (`ROUTE_ORIGIN_HISTORY_RETENTION_DAYS`, 30
+days). These points are mixed in alongside manually-pinned candidates
+before clustering (`StopsRepository.computeSharedStops`) rather than
+clustered separately — the same centroid averaging that merges several
+users' manual pins into one shared stop also gives a frequently-recurring
+automatic detection the "averaged over many occurrences" effect, and lets
+a detection-only location form its own shared stop even if no one ever
+manually pinned it there.
+
+This is a simple speed/duration heuristic, not true stop-purpose
+detection: a red light or a stop sign at a fixed point on the route can
+also recur often enough to surface as a stop. A shorter configured
+duration catches real pickup stops faster but is more exposed to this;
+a longer one filters more of it out at the cost of being slower to
+recognize a genuinely brief pickup stop.
 
 ## 4. Architecture & Technology
 

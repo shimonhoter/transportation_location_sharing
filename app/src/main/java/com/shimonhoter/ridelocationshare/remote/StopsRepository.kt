@@ -21,11 +21,12 @@ data class SharedStop(val id: String, val name: String, val lat: Double, val lon
 data class ActiveHandRaise(val uid: String, val stopId: String, val nickname: String?)
 private data class StopArrivalSample(val lat: Double, val lon: Double, val elapsedMillis: Long)
 
-/** The three live listeners behind [StopsRepository.observeSharedStops] —
- * pass all three back to [StopsRepository.removeSharedStopsObservation]
+/** The four live listeners behind [StopsRepository.observeSharedStops] —
+ * pass all four back to [StopsRepository.removeSharedStopsObservation]
  * together. */
 class SharedStopsObservation internal constructor(
     internal val candidatesListener: ValueEventListener,
+    internal val autoDetectedListener: ValueEventListener,
     internal val originHistoryListener: ValueEventListener,
     internal val arrivalHistoryListener: ValueEventListener
 )
@@ -66,6 +67,13 @@ class SharedStopsObservation internal constructor(
  * waiting at a specific stop, visible to everyone watching the ride,
  * until it's cancelled or MainActivity observes the ride leaving that
  * stop's zone and clears it.
+ *
+ * Stops don't only come from someone tapping the map: [recordAutoDetectedStop]
+ * lets a broadcasting device also contribute points automatically, whenever
+ * BroadcastService notices itself continuously stopped for long enough
+ * (docs/SPEC_EN.md 3.10) — those points feed into the exact same clustering
+ * as manual candidates, so a location where this keeps recurring surfaces
+ * as a shared stop on its own.
  */
 class StopsRepository {
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
@@ -76,6 +84,7 @@ class StopsRepository {
         database.getReference("rideLocation/rides/${sanitizeRideCode(rideCode)}")
 
     private fun stopCandidatesRef(rideCode: String) = rideRef(rideCode).child("stopCandidates")
+    private fun autoDetectedStopsRef(rideCode: String) = rideRef(rideCode).child("autoDetectedStops")
     private fun routeOriginHistoryRef(rideCode: String) = rideRef(rideCode).child("routeOriginHistory")
     private fun stopArrivalHistoryRef(rideCode: String) = rideRef(rideCode).child("stopArrivalHistory")
     private fun handRaisesRef(rideCode: String) = rideRef(rideCode).child("handRaises")
@@ -97,6 +106,28 @@ class StopsRepository {
             stopCandidatesRef(rideCode).child(uid).setValue(data).await()
         } catch (_: Exception) {
             // Best-effort — this device's own local Prefs copy stays authoritative for its own editing UI either way.
+        }
+    }
+
+    /**
+     * Records one occurrence of an automatically-detected pickup stop
+     * (docs/SPEC_EN.md 3.10): BroadcastService found the device continuously
+     * stopped for at least [RideConfig.DEFAULT_AUTO_STOP_DETECTION_SECONDS]
+     * (as configured) while actively broadcasting. Purely additive — one
+     * push-keyed entry per occurrence under today's day key, so repeated
+     * detections at the same real-world location accumulate rather than
+     * overwrite, letting [computeSharedStops] average them the same way it
+     * averages a cluster of manually-pinned candidates. Pruned the same way
+     * as the other day-keyed history nodes.
+     */
+    suspend fun recordAutoDetectedStop(rideCode: String, lat: Double, lon: Double) {
+        try {
+            ensureSignedIn()
+            val todayKey = dayKeyFormat.format(Date())
+            autoDetectedStopsRef(rideCode).child(todayKey).push().setValue(mapOf("lat" to lat, "lon" to lon)).await()
+            pruneByDayKey(autoDetectedStopsRef(rideCode))
+        } catch (_: Exception) {
+            // Best-effort — losing one detection barely affects a 30-day statistical average.
         }
     }
 
@@ -202,10 +233,10 @@ class StopsRepository {
     }
 
     /**
-     * Attaches three live listeners (candidates + route-origin history +
-     * stop-arrival history); [onChange] fires with the freshly
-     * recomputed shared-stop list whenever any of them changes, once all
-     * three have reported at least once. [nameFormat] (e.g.
+     * Attaches four live listeners (candidates + auto-detected stops +
+     * route-origin history + stop-arrival history); [onChange] fires with
+     * the freshly recomputed shared-stop list whenever any of them
+     * changes, once all four have reported at least once. [nameFormat] (e.g.
      * `{ n -> getString(R.string.stop_name_format, n) }`) is injected
      * since this class has no Context/resources of its own.
      */
@@ -215,15 +246,17 @@ class StopsRepository {
         onChange: (List<SharedStop>) -> Unit
     ): SharedStopsObservation {
         var latestCandidates: Map<String, List<StopCandidate>> = emptyMap()
+        var latestAutoDetected: List<GeoPoint> = emptyList()
         var latestOriginHistory: List<GeoPoint> = emptyList()
         var latestArrivalHistory: List<StopArrivalSample> = emptyList()
         var gotCandidates = false
+        var gotAutoDetected = false
         var gotOriginHistory = false
         var gotArrivalHistory = false
 
         fun recompute() {
-            if (!gotCandidates || !gotOriginHistory || !gotArrivalHistory) return
-            onChange(computeSharedStops(latestCandidates, latestOriginHistory, latestArrivalHistory, nameFormat))
+            if (!gotCandidates || !gotAutoDetected || !gotOriginHistory || !gotArrivalHistory) return
+            onChange(computeSharedStops(latestCandidates, latestAutoDetected, latestOriginHistory, latestArrivalHistory, nameFormat))
         }
 
         val candidatesListener = object : ValueEventListener {
@@ -240,6 +273,23 @@ class StopsRepository {
             }
             override fun onCancelled(error: DatabaseError) {
                 gotCandidates = true
+                recompute()
+            }
+        }
+        val autoDetectedListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                latestAutoDetected = snapshot.children.flatMap { daySnap ->
+                    daySnap.children.mapNotNull { entrySnap ->
+                        val lat = entrySnap.child("lat").getValue(Double::class.java) ?: return@mapNotNull null
+                        val lon = entrySnap.child("lon").getValue(Double::class.java) ?: return@mapNotNull null
+                        GeoPoint(lat, lon)
+                    }
+                }
+                gotAutoDetected = true
+                recompute()
+            }
+            override fun onCancelled(error: DatabaseError) {
+                gotAutoDetected = true
                 recompute()
             }
         }
@@ -277,13 +327,15 @@ class StopsRepository {
             }
         }
         stopCandidatesRef(rideCode).addValueEventListener(candidatesListener)
+        autoDetectedStopsRef(rideCode).addValueEventListener(autoDetectedListener)
         routeOriginHistoryRef(rideCode).addValueEventListener(originHistoryListener)
         stopArrivalHistoryRef(rideCode).addValueEventListener(arrivalHistoryListener)
-        return SharedStopsObservation(candidatesListener, originHistoryListener, arrivalHistoryListener)
+        return SharedStopsObservation(candidatesListener, autoDetectedListener, originHistoryListener, arrivalHistoryListener)
     }
 
     fun removeSharedStopsObservation(rideCode: String, observation: SharedStopsObservation) {
         stopCandidatesRef(rideCode).removeEventListener(observation.candidatesListener)
+        autoDetectedStopsRef(rideCode).removeEventListener(observation.autoDetectedListener)
         routeOriginHistoryRef(rideCode).removeEventListener(observation.originHistoryListener)
         stopArrivalHistoryRef(rideCode).removeEventListener(observation.arrivalHistoryListener)
     }
@@ -337,11 +389,19 @@ class StopsRepository {
      */
     private fun computeSharedStops(
         candidatesByUid: Map<String, List<StopCandidate>>,
+        autoDetected: List<GeoPoint>,
         originHistory: List<GeoPoint>,
         arrivalHistory: List<StopArrivalSample>,
         nameFormat: (Int) -> String
     ): List<SharedStop> {
-        val allPoints = candidatesByUid.values.flatten().map { GeoPoint(it.lat, it.lon) }
+        // Auto-detected points are mixed in alongside manually-pinned
+        // candidates before clustering, not clustered separately — the same
+        // centroid averaging that merges several users' manual pins also
+        // gives a frequently-recurring automatic detection the "statistical
+        // averaging over many occurrences" effect (docs/SPEC_EN.md 3.10),
+        // and lets a detection-only location form its own stop even if no
+        // one ever manually pinned it.
+        val allPoints = candidatesByUid.values.flatten().map { GeoPoint(it.lat, it.lon) } + autoDetected
         if (allPoints.isEmpty()) return emptyList()
         val centroids = cluster(allPoints)
         // No route-origin history yet (a brand-new group): fall back to the

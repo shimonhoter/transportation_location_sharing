@@ -194,6 +194,11 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_ALERT_SOUND_DURATION, RideConfig.DEFAULT_ALERT_SOUND_DURATION_SECONDS)
         set(value) = sp.edit().putInt(KEY_ALERT_SOUND_DURATION, value).apply()
 
+    /** How many continuous seconds of a complete stop (docs/SPEC_EN.md 3.10) while broadcasting counts as an automatic pickup-stop detection. User-configurable via Settings, within [RideConfig.MIN_AUTO_STOP_DETECTION_SECONDS, RideConfig.MAX_AUTO_STOP_DETECTION_SECONDS]. */
+    var autoStopDetectionSeconds: Int
+        get() = sp.getInt(KEY_AUTO_STOP_DETECTION_SECONDS, RideConfig.DEFAULT_AUTO_STOP_DETECTION_SECONDS)
+        set(value) = sp.edit().putInt(KEY_AUTO_STOP_DETECTION_SECONDS, value).apply()
+
     private fun readPoint(latKey: String, lonKey: String): GeoPoint? {
         if (!sp.contains(latKey) || !sp.contains(lonKey)) return null
         val lat = sp.getFloat(latKey, 0f).toDouble()
@@ -236,6 +241,7 @@ class Prefs(context: Context) {
         private const val KEY_MIUI_SETTINGS_CONFIRMED = "miui_settings_confirmed"
         private const val KEY_PRIVATE_CAR_UNTIL = "private_car_active_until"
         private const val KEY_ALERT_SOUND_DURATION = "alert_sound_duration_seconds"
+        private const val KEY_AUTO_STOP_DETECTION_SECONDS = "auto_stop_detection_seconds"
         private const val KEY_MY_STOP_CANDIDATES = "my_stop_candidates"
         private const val KEY_MY_HAND_RAISE_STOP_ID = "my_hand_raise_stop_id"
         private const val KEY_MY_HAND_RAISE_ENTERED = "my_hand_raise_entered_stop_zone"

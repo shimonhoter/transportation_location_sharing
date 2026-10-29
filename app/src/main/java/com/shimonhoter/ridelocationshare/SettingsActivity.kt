@@ -89,6 +89,14 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
 
+        binding.seekAutoStopDetection.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                updateAutoStopDetectionLabel(progress)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
         binding.btnSave.setOnClickListener { save() }
         binding.btnSettingsHelp.setOnClickListener { showHelp() }
         binding.btnClearHistory.setOnClickListener {
@@ -157,6 +165,9 @@ class SettingsActivity : AppCompatActivity() {
         binding.seekCorroborationRadius.progress = prefs.corroborationRadiusMeters
         updateCorroborationRadiusLabel(prefs.corroborationRadiusMeters)
 
+        binding.seekAutoStopDetection.progress = prefs.autoStopDetectionSeconds
+        updateAutoStopDetectionLabel(prefs.autoStopDetectionSeconds)
+
         binding.switchHistoryEnabled.isChecked = prefs.historyEnabled
 
         binding.etAlertSoundDuration.setText(prefs.alertSoundDurationSeconds.toString())
@@ -184,6 +195,10 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateCorroborationRadiusLabel(radius: Int) {
         binding.tvCorroborationRadiusValue.text = getString(R.string.corroboration_radius_label) + ": ${radius}m"
+    }
+
+    private fun updateAutoStopDetectionLabel(seconds: Int) {
+        binding.tvAutoStopDetectionValue.text = getString(R.string.auto_stop_detection_label) + ": ${seconds}s"
     }
 
     private fun setOrigin(point: GeoPoint, radiusMeters: Int = pendingOriginRadius) {
@@ -287,6 +302,7 @@ class SettingsActivity : AppCompatActivity() {
         prefs.destinationRadiusMeters = pendingDestinationRadius
         prefs.locationUpdateIntervalSeconds = binding.seekLocationUpdateInterval.progress
         prefs.corroborationRadiusMeters = binding.seekCorroborationRadius.progress
+        prefs.autoStopDetectionSeconds = binding.seekAutoStopDetection.progress
         prefs.historyEnabled = binding.switchHistoryEnabled.isChecked
         prefs.alertSoundDurationSeconds = binding.etAlertSoundDuration.text?.toString()?.toIntOrNull() ?: prefs.alertSoundDurationSeconds
         prefs.tripDurationMinutes = binding.etTripDuration.text?.toString()?.toIntOrNull() ?: prefs.tripDurationMinutes
@@ -303,7 +319,7 @@ class SettingsActivity : AppCompatActivity() {
         addDayIfChecked(days, binding.cbSaturday, Calendar.SATURDAY)
         prefs.activeDays = days
 
-        BroadcastService.refreshSettings(this)
+        BroadcastService.applySettingsChange(this)
 
         Toast.makeText(this, R.string.save_button, Toast.LENGTH_SHORT).show()
         finish()

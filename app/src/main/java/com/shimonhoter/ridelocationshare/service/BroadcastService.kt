@@ -46,7 +46,9 @@ import kotlinx.coroutines.launch
  * destination zone — whichever comes first); writes this device's location
  * to Firebase while broadcasting, and separately listens for the shared
  * ride location for the UI and for on-device alert-zone checks
- * (docs/SPEC_EN.md sections 3.1-3.6).
+ * (docs/SPEC_EN.md sections 3.1-3.6). Also detects automatic pickup-stop
+ * candidates from its own continuous full stops while broadcasting (see
+ * [checkAutoStopDetection], docs/SPEC_EN.md 3.10).
  *
  * Every caller must go through [startAutomatic] or [stop] — a single call
  * path per action.
@@ -65,6 +67,8 @@ class BroadcastService : Service() {
     private var isBroadcastingLocally = false
     private var lastMovingAtMillis: Long = 0L
     private val recentSpeedSamplesKmh = ArrayDeque<Pair<Long, Double>>()
+    private var fullStopStartedAtMillis: Long = 0L
+    private var fullStopRecorded: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -235,6 +239,7 @@ class BroadcastService : Service() {
             if (speedKmh > RideConfig.MOVING_SPEED_THRESHOLD_KMH) {
                 lastMovingAtMillis = System.currentTimeMillis()
             }
+            checkAutoStopDetection(location, speedKmh)
             val rideCode = prefs.rideCode
             serviceScope.launch {
                 locationRepository.postLocation(rideCode, location.latitude, location.longitude, speedKmh, nickname, lastMovingAtMillis)
@@ -351,6 +356,36 @@ class BroadcastService : Service() {
         return cycles >= RideConfig.TRAFFIC_JAM_MIN_STOP_GO_CYCLES
     }
 
+    /**
+     * Automatic pickup-stop detection (docs/SPEC_EN.md 3.10): while
+     * broadcasting, a continuous full stop (speed at/below
+     * [RideConfig.TRAFFIC_JAM_STOP_SPEED_KMH]) lasting at least
+     * [Prefs.autoStopDetectionSeconds] is recorded exactly once per stop —
+     * the instant the threshold is reached, rather than waiting for motion
+     * to resume — so it fires even if the vehicle stays stopped (dropping
+     * someone off) well past that point. Resetting [fullStopStartedAtMillis]
+     * on every resumed-motion fix means the next full stop, however soon
+     * after, starts its own fresh timer and can be recorded again.
+     */
+    private fun checkAutoStopDetection(location: Location, speedKmh: Double) {
+        if (speedKmh > RideConfig.TRAFFIC_JAM_STOP_SPEED_KMH) {
+            fullStopStartedAtMillis = 0L
+            fullStopRecorded = false
+            return
+        }
+        if (fullStopStartedAtMillis == 0L) {
+            fullStopStartedAtMillis = System.currentTimeMillis()
+            return
+        }
+        if (fullStopRecorded) return
+        val stoppedSeconds = (System.currentTimeMillis() - fullStopStartedAtMillis) / 1000.0
+        if (stoppedSeconds >= prefs.autoStopDetectionSeconds) {
+            fullStopRecorded = true
+            val rideCode = prefs.rideCode
+            serviceScope.launch { stopsRepository.recordAutoDetectedStop(rideCode, location.latitude, location.longitude) }
+        }
+    }
+
     /** Computed live from current prefs on every check, rather than cached at
      * broadcast start, so a changed trip duration / safety margin applies
      * immediately mid-ride instead of only on the next ride. */
@@ -365,6 +400,8 @@ class BroadcastService : Service() {
         isBroadcastingLocally = true
         lastMovingAtMillis = 0L
         recentSpeedSamplesKmh.clear()
+        fullStopStartedAtMillis = 0L
+        fullStopRecorded = false
         prefs.isBroadcasting = true
         prefs.rideStartTimeMillis = System.currentTimeMillis()
         serviceScope.launch { stopsRepository.claimRouteOriginOfDay(prefs.rideCode, location.latitude, location.longitude) }
@@ -446,6 +483,33 @@ class BroadcastService : Service() {
         fun refreshSettings(context: Context) {
             if (!isRunning) return
             dispatch(context, ACTION_REFRESH_SETTINGS)
+        }
+
+        /**
+         * Called right after Settings are saved (SettingsActivity.save()):
+         * re-evaluates the active day/time window + speed criterion
+         * immediately, instead of waiting for RideCheckWorker's next
+         * ~15-minute tick, and starts or stops monitoring accordingly —
+         * e.g. widening the window to cover "now" starts monitoring right
+         * away, and shrinking it past "now" stops an idle monitor that was
+         * only running because of the old window. Never interrupts a
+         * broadcast already in progress: the window only ever gates idle
+         * *monitoring* this way too, exactly like
+         * [handleLocationUpdate]'s own `stopSelf()` call already does when
+         * the window lapses mid-monitoring; a mid-ride broadcast still
+         * ends only via its own stop conditions there.
+         */
+        fun applySettingsChange(context: Context) {
+            val prefs = Prefs(context)
+            val shouldBeActive = !prefs.isPrivateCarActive() && ActiveWindow.isNowActive(prefs)
+            if (isRunning) {
+                refreshSettings(context)
+                if (!shouldBeActive && RideSessionState.isThisDeviceBroadcasting.value != true) {
+                    stop(context)
+                }
+            } else if (shouldBeActive) {
+                startAutomatic(context)
+            }
         }
 
         private fun dispatch(context: Context, action: String) {

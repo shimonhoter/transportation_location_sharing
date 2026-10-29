@@ -52,6 +52,7 @@ object RideConfig {
      * main threshold.
      */
     const val TRAFFIC_JAM_WINDOW_SECONDS = 90.0
+    /** Also reused by BroadcastService.checkAutoStopDetection as the "completely stopped" reading for automatic pickup-stop detection (see AUTO_STOP_DETECTION_SECONDS below) — the same near-complete-stop speed either way. */
     const val TRAFFIC_JAM_STOP_SPEED_KMH = 2.0
     const val TRAFFIC_JAM_RESUME_SPEED_KMH = 3.0
     const val TRAFFIC_JAM_MIN_STOP_GO_CYCLES = 2
@@ -154,4 +155,23 @@ object RideConfig {
      * (Firebase), not per-device.
      */
     const val ROUTE_ORIGIN_HISTORY_RETENTION_DAYS = 30
+
+    /**
+     * Automatic pickup-stop detection (docs/SPEC_EN.md 3.10): while a device
+     * is actively broadcasting, a continuous full stop — speed at/below
+     * [TRAFFIC_JAM_STOP_SPEED_KMH] — lasting at least this many seconds is
+     * recorded once as a statistical sample toward a pickup-stop location
+     * (BroadcastService.checkAutoStopDetection), the same way a
+     * manually-pinned candidate is (StopsRepository.recordAutoDetectedStop),
+     * so a location where this keeps recurring across many rides/days
+     * clusters into (and can on its own form) a shared stop without anyone
+     * tapping the map. Also bounds how long a brief red-light stop can look
+     * like a pickup stop before it's recorded, and how patient the app is
+     * before deciding a momentary slowdown counts at all.
+     * User-configurable via Settings (Prefs.autoStopDetectionSeconds); this
+     * is only the default/bounds.
+     */
+    const val DEFAULT_AUTO_STOP_DETECTION_SECONDS = 15
+    const val MIN_AUTO_STOP_DETECTION_SECONDS = 5
+    const val MAX_AUTO_STOP_DETECTION_SECONDS = 40
 }

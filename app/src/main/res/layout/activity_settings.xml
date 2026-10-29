@@ -301,6 +301,38 @@
                 android:orientation="vertical"
                 android:padding="@dimen/spacing_md">
 
+                <TextView
+                    android:id="@+id/tvAutoStopDetectionValue"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/auto_stop_detection_label"
+                    android:textColor="@color/on_surface"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="@dimen/spacing_xs"
+                    android:text="@string/auto_stop_detection_hint"
+                    android:textColor="@color/on_surface_muted"
+                    android:textSize="@dimen/text_size_caption" />
+
+                <SeekBar
+                    android:id="@+id/seekAutoStopDetection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="40"
+                    android:min="5" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView style="@style/RideCard">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/spacing_md">
+
                 <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/switchHistoryEnabled"
                     android:layout_width="match_parent"
